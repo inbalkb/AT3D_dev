@@ -70,16 +70,6 @@ def run_simulation(args):
                 num_exist += 1
         if num_exist == n_files:
             return
-    else:
-        cloud_id = int(cloud_name)
-        if cloud_id < 5000:
-            IS_SW = 0
-        elif (cloud_id >= 5000 and cloud_id < 5500) or (cloud_id >= 6000):
-            IS_SW = 2 # both
-        else:
-            IS_SW = 1
-
-
 
     if run_params['IF_NEW_TXT']:
         cloud_scatterer = at3d.util.load_from_csv(cloud_params['path'], density='lwc', origin=(0.0, 0.0))
@@ -97,16 +87,15 @@ def run_simulation(args):
 
     # load atmosphere
     atmosphere = xr.open_dataset('../data/ancillary/AFGL_summer_mid_lat.nc')
+    # subset the atmosphere, choose only the bottom twenty km.
+    reduced_atmosphere = atmosphere.sel({'z': atmosphere.coords['z'].data[atmosphere.coords['z'].data <= 20.0]})
+    # merge the atmosphere and cloud z coordinates
+    merged_z_coordinate = at3d.grid.combine_z_coordinates([reduced_atmosphere, cloud_scatterer])
 
     # define the property grid - which is equivalent to the base RTE grid
-    if np.any(cloud_scatterer.z.data == 0):
-        rte_grid = at3d.grid.make_grid(cloud_scatterer.x.diff('x')[0], cloud_scatterer.x.data.size,
-                                       cloud_scatterer.y.diff('y')[0], cloud_scatterer.y.data.size,
-                                       cloud_scatterer.z.data)
-    else:
-        rte_grid = at3d.grid.make_grid(cloud_scatterer.x.diff('x')[0], cloud_scatterer.x.data.size,
-                                       cloud_scatterer.y.diff('y')[0], cloud_scatterer.y.data.size,
-                                       np.append(0, cloud_scatterer.z.data))
+    rte_grid = at3d.grid.make_grid(cloud_scatterer.x.diff('x')[0], cloud_scatterer.x.data.size,
+                                   cloud_scatterer.y.diff('y')[0], cloud_scatterer.y.data.size,
+                                   merged_z_coordinate)
 
     cloud_scatterer_on_rte_grid = at3d.grid.resample_onto_grid(rte_grid, cloud_scatterer)
 
@@ -129,13 +118,13 @@ def run_simulation(args):
             wavelength_averaging = True
             formatstr = 'mie_mono_averaged_Water_{}-{}nm.nc'.format(int(1e3 * wavelength_band[0]),
                                                                     int(1e3 * wavelength_band[1]))
-        mono_path = os.path.join('../mie_tables', formatstr)
+        mono_path = os.path.join('/wdata/inbalkom/AT3D_CloudCT_shared_files/mie_tables', formatstr)
         mie_mono_table = at3d.mie.get_mono_table(
             'Water', wavelength_band_tuple,
             wavelength_averaging=wavelength_averaging,
             max_integration_radius=65.0,
             minimum_effective_radius=0.1,
-            relative_dir='../mie_tables',
+            relative_dir='/wdata/inbalkom/AT3D_CloudCT_shared_files/mie_tables/',
             verbose=False
         )
         mie_mono_tables[mean_wavelength] = mie_mono_table
@@ -160,7 +149,16 @@ def run_simulation(args):
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
     # surface = at3d.surface.lambertian(0.05)
-    if IS_SW==0:
+    if run_params['IS_SUN_WIND_CONST']:
+        surface_wind_speed = run_params['surface_wind_speed_mean']
+        surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
+                                            surface_wind_speed=surface_wind_speed,
+                                            ground_temperature=run_params['temperature'])
+        print('added wave_fresnel surface with const wind speed of {} m/s'.format(surface_wind_speed))
+        sun_azimuth = run_params['const_sun_azimuth']
+        sun_zenith = run_params['const_sun_zenith']
+        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+    else:
         surface_wind_speed = np.random.default_rng().normal(loc=run_params['surface_wind_speed_mean'],
                                                         scale=run_params['surface_wind_speed_std'])
         while surface_wind_speed < 0:
@@ -168,14 +166,14 @@ def run_simulation(args):
                                                             scale=run_params['surface_wind_speed_std'])
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
-                                            ground_temperature=287.63)  # wind: 9.9-10.2m/s according to worldview.earthdata. 14.40-14.55 degs C.
-        print('added wave_fresnel surface with wind speed of {} m/s'.format(surface_wind_speed))
+                                            ground_temperature=run_params['temperature'])
+        print('added wave_fresnel surface with varying wind speed of {} m/s'.format(surface_wind_speed))
         sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
-        print('set sun_azimuth as {}deg and sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+        print('set varying sun_azimuth as {}deg and varying sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
     for wavelength in mean_wavelengths:
         medium = {
             'cloud': optical_properties[wavelength],
-            'rayleigh':rayleigh_scattering[wavelength]
+            'rayleigh': rayleigh_scattering[wavelength]
          }
         config = at3d.configuration.get_config()
         solvers_dict.add_solver(
@@ -301,7 +299,7 @@ def run_simulation(args):
 
             if not os.path.exists(os.path.join(run_params['images_path_for_nn'],path_stamp)):
                 # Create a new directory because it does not exist
-                os.makedirs(os.path.join(run_params['images_path_for_nn'],path_stamp))
+                safe_mkdirs(os.path.join(run_params['images_path_for_nn'],path_stamp))
                 print("The directory for saving cloud results for projection {} was created.".format(path_stamp))
 
             with open(filename, 'wb') as outfile:
@@ -388,8 +386,10 @@ def run_simulation(args):
                                              cloudbow_additional_scan,
                                              run_params['cloudbow_range'],
                                              theta_max, theta_min,
-                                             sun_zenith,
-                                             sun_azimuth)
+                                             sun_zenith, sun_azimuth,
+                                             move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                             move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
+                                             )
 
             # what is the scan_imager_index?
             distances = sat_positions - cloud_bow_sat_positions[0]
@@ -412,8 +412,8 @@ def run_simulation(args):
         # we intentionally, work with projections lists.
         up_list = np.array(len(sat_positions) * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
         for mean_wavelength in mean_wavelengths:
-            for position_vector, lookat_vector, up_vector, name in zip(sat_positions,
-                                                                       SAT_LOOKATS, up_list, names):
+            for position_vector, lookat_vector, up_vector in zip(sat_positions,
+                                                                       SAT_LOOKATS, up_list):
                 loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
                                                                  x_resolution=cnx, y_resolution=cny,
                                                                  position_vector=position_vector,
@@ -422,7 +422,7 @@ def run_simulation(args):
                                                                  sub_pixel_ray_args={'method': at3d.sensor.stochastic,
                                                                                      'nrays': 1})
 
-                sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3))+'_'+name, loop_sensor)
+                sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
         print('Done defining CloudCT''s sensors')
         print('getting CloudCT''s measurments')
         # Next part will be the rendering, when the RTE solver is prepared (below).
@@ -430,42 +430,83 @@ def run_simulation(args):
         sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True)
         print('Done getting CloudCT''s measurments')
 
+        # ----------------------------------------------------
+
+        # images0 = []
+        # for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
+        #     sensor_images = sensor_dict.get_images(instrument)
+        #     sensor_group_list = sensor_dict[instrument]['sensor_list']
+        #     assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+        #     for sensor_ind, sensor in enumerate(sensor_group_list):
+        #         copied = sensor.copy(deep=True)
+        #
+        #         # add image to 'images0' for visualization
+        #         if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
+        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+        #         elif run_params['stokes'] == ['I', 'Q']:
+        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
+        #         elif run_params['stokes'] == ['I', 'Q', 'U']:
+        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+        #                                    sensor_images[sensor_ind].U.data.T])
+        #         elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
+        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+        #                                    sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
+        #         images0.append(curr_image)
+        #
+        # if 1:
+        #     plot_cloud_images(images0)
+        #     a = 5
+
+        if not run_params['cancel_noise']:
+            sensor_dict = add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, names, cnx, cny)
+
+        # ----------------------------------------------------
+
         sensor_list = []
         images = []
         ray_mu_list = []
         ray_phi_list = []
         projection_matrices = []
-        for sensor_ind, (instrument, sensor) in enumerate(sensor_dict.items()):
-            copied = sensor['sensor_list'][0].copy(deep=True)
-
-            # add ray_mu and ray_phi to lists for future scattering plane calculations
-            ray_mu_list.append(copied.ray_mu.data)
-            ray_phi_list.append(copied.ray_phi.data)
-
-            # create 'sensor_list' for space carving - without cloudbow!
-            if (len(instrument.split('_')) == 2) or (len(instrument.split('_'))==3 and instrument[-2:] == 's0'):
-                ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
-                ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
-                copied['weights'] = ('nrays', copied.I.data)
-                copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
-                sensor_list.append(copied)
-
-            # add projection_matrix to 'projection_matrices' in order to save in file
-            projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
-
-            # add image to 'images' in order to save in file
+        for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
             sensor_images = sensor_dict.get_images(instrument)
-            if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-                curr_image = np.array([sensor_images[0].I.data.T])
-            elif run_params['stokes'] == ['I', 'Q']:
-                curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T])
-            elif run_params['stokes'] == ['I', 'Q', 'U']:
-                curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T,
-                                       sensor_images[0].U.data.T])
-            elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
-                curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T,
-                                       sensor_images[0].U.data.T, sensor_images[0].V.data.T])
-            images.append(curr_image)
+            sensor_group_list = sensor_dict[instrument]['sensor_list']
+            assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+            for sensor_ind, sensor in enumerate(sensor_group_list):
+                copied = sensor.copy(deep=True)
+
+                # add ray_mu and ray_phi to lists for future scattering plane calculations
+                ray_mu_list.append(copied.ray_mu.data)
+                ray_phi_list.append(copied.ray_phi.data)
+
+                # create 'sensor_list' for space carving - without cloudbow!
+
+                if (len(names[sensor_ind].split('_')) == 1) or (len(names[sensor_ind].split('_'))==2 and names[sensor_ind][-2:] == 's0'):
+                    ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
+                    ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
+                    copied['weights'] = ('nrays', copied.I.data)
+                    copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
+                    sensor_list.append(copied)
+
+                # add projection_matrix to 'projection_matrices' in order to save in file
+                projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
+
+                # add image to 'images' in order to save in file
+
+                if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
+                    curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+                elif run_params['stokes'] == ['I', 'Q']:
+                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
+                elif run_params['stokes'] == ['I', 'Q', 'U']:
+                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                           sensor_images[sensor_ind].U.data.T])
+                elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
+                    curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                           sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
+                images.append(curr_image)
+
+        if 0:
+            plot_cloud_images(images)
+            a = 5
 
         print('getting CloudCT''s space carving')
         space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
@@ -484,7 +525,6 @@ def run_simulation(args):
         carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
         cloud = {'images': np.array(images),
-                 'images_const_sw': np.array(images),
                  'mask': carved_volume.mask,
                  'mask_morph': mask_morph,
                  'cloud_path': cloud_params['path'],
@@ -498,14 +538,18 @@ def run_simulation(args):
                  'grid': grid
                  }
 
-        filename = os.path.join(run_params['images_path_for_nn'],
+        if run_params['IS_SUN_WIND_CONST']:
+            path_stamp = 'const_env_params'
+        else:
+            path_stamp = 'varying_env_params'
+        filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                                 'cloud_results_' + cloud_name + '.pkl')
         print(f'saving cloud in {filename}')
 
         if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
             # Create a new directory because it does not exist
-            os.makedirs(os.path.join(run_params['images_path_for_nn'], path_stamp))
-            print("The directory for saving cloud results for projection {} was created.".format(path_stamp))
+            safe_mkdirs(os.path.join(run_params['images_path_for_nn'], path_stamp))
+            print("The directory for saving cloud results for option {} was created.".format(path_stamp))
 
         with open(filename, 'wb') as outfile:
             pickle.dump(cloud, outfile, protocol=pickle.HIGHEST_PROTOCOL)
@@ -627,7 +671,9 @@ if __name__ == '__main__':
                   'stokes': ['I', 'Q', 'U'],
                   'max_simultaneous_simulations': 5,
                   'surface_wind_speed_mean': 6.67,  # m/s
-                  'surface_wind_speed_std': 2.5  # m/s
+                  'surface_wind_speed_std': 2.5,  # m/s
+                  'IS_SUN_WIND_CONST': True,
+                  'cancel_noise': False
                   }
     if run_params['IF_AIRMSPI']:
         run_params['wavelengths'] = [[0.660, 0.660]]
@@ -637,6 +683,7 @@ if __name__ == '__main__':
         run_params['Lat_for_sun_angles'] = 32  # degrees
         run_params['const_sun_azimuth'] = 36.56
         run_params['const_sun_zenith'] = 154.74
+        run_params['temperature'] = 287.63  # wind: 9.9-10.2m/s according to worldview.earthdata. 14.40-14.55 degs C.
     else:
         run_params['SATS_NUMBER'] = 10
         run_params['wavelengths'] = [[0.620, 0.670]]
@@ -651,6 +698,27 @@ if __name__ == '__main__':
         run_params['cloudbow_additional_scan'] = 10
         run_params['cloudbow_range'] = [135,150]  # cloudbow_range - list of two elements - the cloudbow range in degrees.
         run_params['tune_scalar'] = 1.5
+        run_params['temperature'] = 288.15  # 15 degrees Celcius
+
+        imager_id_0 = {
+            'Number': 10,  # number of imagers of the same type.
+            'Imager_params_Path': '/wdata/inbalkom/AT3D_CloudCT_shared_files/CloudCT_configs/Imager_params.yaml',
+            'true_indices': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],  # where imagers are located on the strig of pearls setup
+            'rays_per_pixel': 1,
+            'rigid_sampling': True,
+            'cloudbow_additional_scan': 10,  # Number off additional view in the cloud-bow range.
+            'radiance_thresholds': 0.02
+            # Need only for Space Curving. Threshold is either a scalar or a list of length of measurements.
+        }
+
+        run_params['Imagers'] = {'imager_id_0': imager_id_0}
+        run_params['uncertainty_options'] = {
+            'use_cal_uncertainty': False,
+            'use_bias': True,
+            'use_gain': False,
+            'max_bias': 5,
+            'max_gain': 5
+        }
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    # main(run_params, clouds_path)
-    simple_main(run_params, clouds_path)
+    main(run_params, clouds_path)
+    # simple_main(run_params, clouds_path)

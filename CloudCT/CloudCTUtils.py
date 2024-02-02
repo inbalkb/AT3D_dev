@@ -16,6 +16,9 @@ import pandas as pd
 import warnings
 from mpl_toolkits.axes_grid1 import AxesGrid, make_axes_locatable
 import copy
+import yaml
+import CloudCT_Imager
+import random
 
 # -------------------------------------------------------------------------------
 # ----------------------CONSTANTS------------------------------------------
@@ -181,6 +184,39 @@ def load_from_csv_shdom(path, density=None, origin=(0.0, 0.0)):
     return dset
 
 
+def load_params(params_path, param_type='run_params'):
+    """
+    TODO
+    Args:
+        params_path ():
+
+    Returns:
+
+    """
+    logger = logging.getLogger(__name__)
+
+    # Load run parameters
+    params_file_path = params_path
+    logger.debug(f"loading params from {params_file_path}")
+
+    with open(params_file_path, 'r') as f:
+        params = yaml.full_load(f)
+
+    logger.debug(f"running with params:{params}")
+    # TODO: add schemas.
+    # if param_type == 'run_params':
+    #     run_params_schema.validate(params)
+    # elif param_type == 'imager_params':
+    #     imager_params_schema.validate(params)
+    # elif param_type == 'clouds':
+    #     logger.debug('Currently no schema validation for clouds')
+    # else:
+    #     raise NotImplementedError
+
+
+    return params
+
+
 # def show_scatterer(cloud_scatterer):
 #
 #     """
@@ -251,6 +287,138 @@ def load_from_csv_shdom(path, density=None, origin=(0.0, 0.0)):
 #     #mlab.show()
 
 # ---------------------------------------------------
+
+
+def get_uncertainties(params):
+    gain_std_percents = 0  # default
+    global_bias_std_percents = 0  # default
+    forward_dir_addition = ''
+    if params['use_cal_uncertainty']:
+        forward_dir_addition = f'_cal_uncertainty_{random.randint(1, 1000)}'
+        if params['use_bias']:
+            global_bias_std_percents = params['use_bias']
+            forward_dir_addition += f"_use_bias_{params['max_bias']}"
+        if params['use_gain']:
+            gain_std_percents = params['use_gain']
+            forward_dir_addition +=  f"_use_gain_{params['max_gain']}"
+
+    return gain_std_percents, global_bias_std_percents, forward_dir_addition
+
+
+def setup_imager(imager_options):
+    """
+    TODO
+
+    Returns:
+
+    """
+    Imager_params_Path = imager_options['Imager_params_Path']
+    Imager_params = load_params(Imager_params_Path, param_type='imager_params')
+    sensor_params = Imager_params['sensor']
+    lens_params = Imager_params['lens']
+    imager_channels = Imager_params['imager_channels']
+    imager_bands = Imager_params['imager_bands']
+    # csv files to use:
+    DARK_NOISE_table = os.path.join(Imager_params['CSV_BASE_PATH'], sensor_params['DARK_NOISE_CSV_FILE'])
+    TRANSMISSION_CSV_FILE = os.path.join(Imager_params['CSV_BASE_PATH'], lens_params['TRANSMISSION_CSV_FILE'])
+
+    TRANSMISSION_CHANNEL_TYPE = lens_params['TRANSMISSION_CHANNEL_TYPE']
+
+    # Define imager:
+
+    # 1. Define sensor:
+    sensor = CloudCT_Imager.SensorFPA(PIXEL_SIZE=sensor_params['PIXEL_SIZE'], FULLWELL=sensor_params['FULLWELL'],
+                             CHeight=sensor_params['CHeight'],
+                             CWidth=sensor_params['CWidth'], READOUT_NOISE=sensor_params['READOUT_NOISE'],
+                             TEMP=sensor_params['TEMP'], BitDepth=sensor_params['BitDepth'], TYPE=sensor_params['TYPE'])
+
+    qe = CloudCT_Imager.EFFICIENCY()  # define QE object
+    for channel in imager_channels:
+        QE_CSV_FILE = os.path.join(Imager_params['CSV_BASE_PATH'], channel + '.csv')
+        qe.Load_EFFICIENCY_table(csv_table_path=QE_CSV_FILE, channel=channel)
+
+    # set sensor efficiency:
+    sensor.set_QE(qe)
+    sensor.Load_DARK_NOISE_table(DARK_NOISE_table)
+
+    # 2. Define lens:
+    lens = CloudCT_Imager.LensSimple(FOCAL_LENGTH=lens_params['FOCAL_LENGTH'], DIAMETER=lens_params['DIAMETER'])
+    # shdom.LensSimple means that the lens model is simple and without MTF considerations but still with focal and diameter.
+    lens_transmission = CloudCT_Imager.EFFICIENCY()
+    lens_transmission.Load_EFFICIENCY_table(csv_table_path=TRANSMISSION_CSV_FILE, channel=TRANSMISSION_CHANNEL_TYPE)
+    lens.set_TRANSMISSION(lens_transmission)
+
+    # 3. create imager:
+    # set spectrum:
+    scene_spectrum = CloudCT_Imager.SPECTRUM(channels=imager_channels, bands=imager_bands)
+    if_valid, imager_type_to_return = scene_spectrum.is_valid_spectrum_for_imager()
+    assert if_valid, "Invalide spectrum for imager usage."
+
+    # merge quantum effciency with the defined spectrum:
+    imager_type = Imager_params['imager_type']
+    # TODO delete from code:
+    # if imager_type == 'Polarized_sensor' or imager_type == 'Polarized_filter':
+    # assert Imager_params['NUM_STOKES']<=3, "Inconsistency in imager definations."
+    # else:
+    ## means it is Radiance_sensor.
+    # assert Imager_params['NUM_STOKES'] == 1, "Inconsistency in imager definations."
+    # STOKES_WEIGHTS = Imager_params['STOKES_WEIGHTS']
+    # stokes_weights = [int(i) for i in STOKES_WEIGHTS.split()]
+    # assert sum(stokes_weights[1::]) == 0, "Inconsistency in imager definations."
+
+    imager = CloudCT_Imager.Imager(sensor=sensor, lens=lens, scene_spectrum=scene_spectrum, TYPE=imager_type)
+
+    return imager, imager_type_to_return
+
+
+def setup_imagers(params, sun_zenith):
+    # Imagers_nember_per_setup in the run params described how manny imagers of diffrent type in this simulation:
+    # For instance, SWIR and VIS or just POLARIZED.
+    Imagers_number_per_setup = len(params['Imagers'].keys())
+    imagers = {}  # Evrey imager has imager id
+
+    # If we do not use simple imager we probably use imager with a band/s. If wavelength_averaging = False - we use simple imager and the medium iprots the coresponded mie tables.
+    wavelength_averaging = False
+    USE_STOKES = False  # if there will be at least one imager with polarization, it will be True.
+    # STOKES_WEIGHTS = '1 1 1 0' # Meanwhile it is fixed here.
+    STOKES_WEIGHTS = '1 0 0 0'
+
+    number_of_real_imagers = 0
+    for imager_id, imager_options in params['Imagers'].items():
+        imager, imager_type = setup_imager(imager_options)
+        imager_true_indices = imager_options['true_indices']
+        if len(imager_true_indices) == 0:
+            # skip this imager id, it is inactive.
+            Imagers_number_per_setup -= 1
+            continue
+
+        if imager_type == 'real':
+            # if the imager is simple it has monochromatic chanels, than the Mie tables will be consistent.
+            wavelength_averaging = True
+            number_of_real_imagers += 1
+
+        # setup other parameters from the run params:
+        imager.set_solar_beam_zenith_angle(
+            SZA=sun_zenith)  # update the imager with solar irradince with the solar zenith angle.
+        # TODO -  use here pysat or pyEpham package to predict the orbital position of the nadir view sattelite and the SZA.
+
+        imager.change_temperature(params['temperature']-273.15)  # convert Kelvin to Celcius
+        imager.set_Imager_altitude(H=params['Rsat'])  # in km
+        imager.IS_VALIDE_LENS_DIAMETER()
+
+        if imager.IS_HAS_POLARIZATION():
+            USE_STOKES = True
+            STOKES_WEIGHTS = '1 1 1 0'
+
+        imagers[imager_id] = imager
+
+    # check if all imagers are real or simple (Must be all of the same type):
+    assert (number_of_real_imagers == 0 or number_of_real_imagers == Imagers_number_per_setup), \
+        "The imagers MUST all be either simple or real not a mixture"
+
+    return imagers, USE_STOKES, STOKES_WEIGHTS, wavelength_averaging
+
+
 def StringOfPearls(SATS_NUMBER=10, orbit_altitude=500, widest_view=False, move_nadir_x=0, move_nadir_y=0):
     """
     Set orbit parmeters:
@@ -304,7 +472,8 @@ def StringOfPearls(SATS_NUMBER=10, orbit_altitude=500, widest_view=False, move_n
 
 
 def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), cloudbow_additional_scan=6,
-                               cloudbow_range=[135, 155], theta_max=60, theta_min=-60, sun_zenith=180, sun_azimuth=0):
+                               cloudbow_range=[135, 155], theta_max=60, theta_min=-60, sun_zenith=180, sun_azimuth=0,
+                               move_nadir_x=0, move_nadir_y=0):
     """
     TODO
 
@@ -324,9 +493,9 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
     sat_thetas = np.arange(theta_min, theta_max, 0.0001)
     sat_thetas = sat_thetas[::-1]  # put sat1 to be the rigthest
 
-    X_config = r_orbit * np.sin(sat_thetas)
+    X_config = r_orbit * np.sin(sat_thetas) + move_nadir_x
     Z_config = r_orbit * np.cos(sat_thetas) - r_earth
-    Y_config = np.zeros_like(X_config)
+    Y_config = np.zeros_like(X_config) + move_nadir_y
     sat_positions = np.vstack([X_config, Y_config, Z_config])  # path.shape = (3,#sats) in km.
     sat_direction = lookat[:, np.newaxis] - sat_positions
     sat_direction = -sat_direction / np.linalg.norm(sat_direction, axis=0, keepdims=True)
@@ -372,9 +541,9 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
                 sat_sun_angles[j] = -200  # give invalid value
 
     # result_phis should be close to desired_phis, check it here:
-    test_X_config = r_orbit * np.sin(np.deg2rad(desired_thetas))
+    test_X_config = r_orbit * np.sin(np.deg2rad(desired_thetas)) + move_nadir_x
     test_Z_config = r_orbit * np.cos(np.deg2rad(desired_thetas)) - r_earth
-    test_Y_config = np.zeros_like(test_X_config)
+    test_Y_config = np.zeros_like(test_X_config) + move_nadir_y
     test_sat_positions = np.vstack([test_X_config, test_Y_config, test_Z_config])  # path.shape = (3,#sats) in km.
     test_sat_direction = lookat[:, np.newaxis] - test_sat_positions
     test_sat_direction = -test_sat_direction / np.linalg.norm(test_sat_direction, axis=0, keepdims=True)
@@ -401,12 +570,12 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
         num_of_new_thetas = len(desired_thetas) - (not_cloudbow_startind + 1)
         desired_thetas[not_cloudbow_startind + 1:] = (desired_thetas[not_cloudbow_startind] +
                                                       np.arange(1, num_of_new_thetas + 1) * rest_of_dthetas)
-    elif (new_theta_inds.size != 0) or (new_theta_inds.size == 0 and np.any(np.abs(desired_phis - result_phis) < 2)):
+    elif (new_theta_inds.size != 0) or (new_theta_inds.size == 0 and np.any(np.abs(desired_phis - result_phis) >= 2)):
         raise Exception("Something went wrong in the cloudbow scanning calculations.")
     # interpreted_sat_positions
-    interp_X_config = r_orbit * np.sin(desired_thetas)
+    interp_X_config = r_orbit * np.sin(desired_thetas) + move_nadir_x
     interp_Z_config = r_orbit * np.cos(desired_thetas) - r_earth
-    interp_Y_config = np.zeros_like(desired_thetas)
+    interp_Y_config = np.zeros_like(desired_thetas) + move_nadir_y
     interpreted_sat_positions = np.vstack([interp_X_config, interp_Y_config, interp_Z_config])
 
     print(interpreted_sat_positions)
@@ -748,7 +917,7 @@ def convertStocks(sensor_dict, r_sat, GSD, method='meridian2camera'):
 
             lookat_str = '_'.join(str(int(np.round(x * 1000))) for x in current_lookat)
             origin_str = '_'.join(str(np.round(x, 3)) for x in current_origin)
-            dir_path = os.path.join('..', 'polar_convert_angles')
+            dir_path = os.path.join('/wdata/inbalkom/AT3D_CloudCT_shared_files', 'polar_convert_angles')
             filename = os.path.join(dir_path,
                                     'theta_pixx_' + str(cnx) + '_pixy_' + str(cny) + '_gsd_' + str(
                                         current_gsd) + '_lookat_' + lookat_str + '_origin_' + origin_str + '.pkl')
@@ -971,7 +1140,284 @@ def convertStocks(sensor_dict, r_sat, GSD, method='meridian2camera'):
             sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = stokes_converted[
                 sensor_index, 2, ...].flatten(order='F')
 
+    return stokes_converted, sensor_dict_out
+
+
+def imitate_measurements_with_polarizer_at(S=None, polarizer_orientation_deg=0):
+    """
+    Imitate measurements at polarizer at different linear polarizer orientations relative to 0[deg] which is the cameas x axis.
+    The Stock representation MUST be in the camera frame.
+    S - list or image of Stokes representation.
+    polarizer_orientation_deg - float of list of floats that has the polarization angle with respect to polarizer at zero which is aligned
+    with cameras X-axis.
+    """
+
+    # stocks_meridian can be np.array of size (num_stokes, cnx, cny, channels) or (num_stokes, cnx, cny)
+    # or it may be a list of above entity.
+    if isinstance(S, list):
+        num_stokes = S[0].shape[0]
+
+        if (S[0].ndim == 4):
+            N_channels = S[0].shape[3]
+        else:
+            N_channels = 1
+
+        N_views = len(S)
+        S = np.array(S)
+
+
+    else:
+        num_stokes = S.shape[0]
+        if (S.ndim == 4):
+            N_channels = S.shape[3]
+        else:
+            N_channels = 1
+
+        N_views = 1
+        S = S[np.newaxis, ...]
+
+    if (N_channels == 1):
+        S = S[..., np.newaxis]
+
+    cnx, cny = S.shape[2:4]
+
+    # which polarization angle to use?
+    if (isinstance(polarizer_orientation_deg, list)):
+        N_polar_angles = len(polarizer_orientation_deg)
+        measurements = np.zeros([N_polar_angles, N_views, cnx, cny, N_channels])
+    else:
+        polarizer_orientation_deg = [polarizer_orientation_deg]
+        N_polar_angles = 1
+        measurements = np.zeros([N_views, cnx, cny, N_channels])
+
+    M = np.zeros([N_polar_angles, 3])
+    for angle_index, polarizer_angle in enumerate(polarizer_orientation_deg):
+        M[angle_index, ...] = np.array(
+            [1, np.cos(2 * np.deg2rad(polarizer_angle)), np.sin(2 * np.deg2rad(polarizer_angle))])
+
+    # here we have the matrix M which calculate intensities from (I, Q, U) elements.
+
+    for wavelength_index in range(N_channels):
+
+        S_per_channel = S[..., wavelength_index]
+
+        for view_index in range(N_views):
+
+            stokes_I = np.squeeze(S_per_channel[view_index, 0, ...]).copy()
+            stokes_Q = np.squeeze(S_per_channel[view_index, 1, ...]).copy()
+            if (num_stokes == 3):
+                stokes_U = np.squeeze(S_per_channel[view_index, 2, ...]).copy()
+            else:
+                stokes_U = np.zeros_like(stokes_I)
+
+            if (num_stokes == 4):
+                raise Exception("I don't know what to do with the circular polarization part yet.")
+                stokes_V = np.squeeze(S_per_channel[view_index, 3, ...]).copy()
+            else:
+                stokes_V = np.zeros_like(stokes_I)
+
+            Sfull = np.vstack([stokes_I.flatten(),
+                               stokes_Q.flatten(),
+                               stokes_U.flatten()])
+            # stokes_V.flatten()]) # full stocks vector
+
+            g = 0.5 * np.dot(M, Sfull)  # size of g is [N_polar_angles x (cnx*cny) ]
+            measurements[:, view_index, ..., wavelength_index] = g.reshape([N_polar_angles, cnx, cny], order='C')
+
+    Intensities = []
+    measurements = np.split(measurements, N_polar_angles, axis=0)
+    for angle_index, polarizer_angle in enumerate(polarizer_orientation_deg):
+        I = np.split(np.squeeze(measurements[angle_index]), N_views, axis=0)
+        A = []
+        for i in range(N_views):
+            A.append(np.squeeze(I[i]))
+        Intensities.append(A)
+
+    if (N_polar_angles == 1):
+
+        return Intensities[0], M
+    else:
+
+        return Intensities, M
+
+
+def retrieve_stokes_from_measurments(measurements, M):
+    """
+    Retrieve stokes representation form at least 3 different (polaizer angle) measurements.
+
+    """
+    N_polar_angles = M.shape[0]
+    assert N_polar_angles == len(measurements), "measurements do not consistent with the matrix M."
+    assert N_polar_angles > 3, "At leas 3 measurements are needed."
+    num_stokes = 3
+
+    if (isinstance(measurements, list)):
+        N_views = len(measurements[0])
+        cnx, cny = measurements[0][0].shape[0:2]
+        if (measurements[0][0].ndim == 3):
+            N_channels = measurements[0][0].shape[2]
+        else:
+            N_channels = 1
+    else:
+        N_views = len(measurements)
+        measurements = [measurements]
+        cnx, cny = measurements[0].shape[0:2]
+        if (measurements[0].ndim == 3):
+            N_channels = measurements[0].shape[2]
+        else:
+            N_channels = 1
+
+    Retrieved = []
+    for view_index in range(N_views):
+        intensites_per_view = [measurements[i][view_index].flatten() for i in range(N_polar_angles)]
+        intensites_per_view = np.stack(intensites_per_view)
+
+        S = 2 * np.dot(np.linalg.pinv(M), intensites_per_view)
+        S = S.reshape([num_stokes, cnx, cny, -1], order='C')
+        Retrieved.append(S)
+
+    return Retrieved
+
+
+def update_images_in_sensor_dict(images_per_sensor, sensor_dict):
+    sensor_dict_out = copy.deepcopy(sensor_dict)
+
+    assert len(sensor_dict) == 1, "Currently doesn't soppurt more than 1 instrument"
+    for instrument in sensor_dict_out:
+        sensor_list = sensor_dict_out[instrument]['sensor_list']
+        assert len(sensor_list) == len(images_per_sensor), "len(sensor_list) does not match len(images_per_sensor)"
+        for sensor_index, sensor_image in enumerate(images_per_sensor):
+            sensor = sensor_list[sensor_index]
+            curr_image = np.squeeze(sensor_image)
+            sensor_dict_out[instrument]['sensor_list'][sensor_index]['I'].data = curr_image[0].flatten(order='F')
+            sensor_dict_out[instrument]['sensor_list'][sensor_index]['Q'].data = curr_image[1].flatten(order='F')
+            sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = curr_image[2].flatten(order='F')
     return sensor_dict_out
+
+
+def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat_names, cnx, cny):
+    num_stokes = len(run_params['stokes'])
+    N_channels = len(run_params['wavelengths'])
+    Rsat = run_params['Rsat']
+    GSD = run_params['GSD']
+    cancel_noise = run_params['cancel_noise']
+    if (num_stokes >= 3):
+        imagers, use_stokes, stokes_weights, wavelength_averaging = setup_imagers(run_params, sun_zenith)
+        gain_std_percents, global_bias_std_percents, forward_dir_uncertainty_addition = get_uncertainties(
+            run_params['uncertainty_options'])
+        for imager_id, imager in imagers.items():
+            # Update the resolution of each Imager with respect to this simulation pixels number [nx,ny]
+            # (from run params + view tuning). In addition, we update Imager's FOV.
+            imager.update_sensor_size_with_number_of_pixels(cnx, cny)
+            imager.set_gain_uncertainty(gain_std_percents)
+            imager.set_bias_uncertainty(global_bias_std_percents)
+        # setup imagers list. right now applies for only one imager/instrument type.
+        imagers_list = [copy.deepcopy(imagers['imager_id_0']) for _ in np.arange(len(sat_names))]
+
+        radiances_per_imager_cam_frame, sensor_dict_camera_frame = convertStocks(sensor_dict, Rsat, GSD, method='meridian2camera')
+
+        # Like sony polarized sensor.
+        polarizer_orientations_deg = [0, 45, 90, 135]  # imitate lucid camera with filters to 0°, 45°, 90° and 135°.
+        # TODO - add unsertainties for the angles for each pixel?
+        Intensities, M = imitate_measurements_with_polarizer_at(list(radiances_per_imager_cam_frame),
+                                                                polarizer_orientations_deg)
+        # Matrix M calculates intensities from (I, Q, U) elements.
+        # It will be used to convert back to (I, Q, U) elements.
+
+        # -------------------------------------------------------------
+        # --------------- apply noise here: ---------------------------
+        # The noise is added here during the conversion between
+        # normalized radiance to grayscale.
+        # -------------------------------------------------------------
+        # old issue - source_imager.adjust_exposure_time(Intensities) # consider this since it is important to not
+        # be in saturation or in low snr levels.
+
+        # len(Intensities) - number of polarization angles.
+        # len(Intensities[0]) - number of views per this imager per polarization angle of the polarizer.
+        N_polar_angles = len(Intensities)
+        N_views = len(Intensities[0])
+        assert N_views == len(
+            sat_names), "Something went wrong in the passage of the simulated stokes vector through simulated polarizers."
+
+        """
+        Remainder - here we per imager loop.
+        The loop over all imagers channels is inside the conversion method.
+        We should do the loops over the polarization angles and different views.
+        The method convert_radiance_to_graylevel does the following:
+        1. converts photons to electrons.
+        2. add global bias (uncertainty) to the signal in electrons level.
+        3. add noises: photonic and camera.
+        4. add gain uncertainty for each pixel.
+        5. convert to grayscales (assume linear responce).
+        6. Quantize and clip in the relevant digital range [0,2^bits].
+
+        """
+
+        GRAY_SCALE_IMAGES = np.zeros([N_polar_angles, N_views, cnx, cny, N_channels])
+        RADIANCE_IMAGES = np.zeros([N_polar_angles, N_views, cnx, cny, N_channels])
+
+        # loop over angles of the simulated polarizer angles:
+        for pol_ang_index in range(N_polar_angles):
+            # loop over all views
+            for sat_id, sat_name in enumerate(sat_names):
+                # note that sat_id it is not the number (i) of sat(i). If for instance
+                # sat_names = sat4, sat7 the pairs are (sat_id = 0 sat_name = sat4), (sat_id = 1 sat_name = sat7)
+
+                # get the right imager from the list of setup imagers per this imager id:
+                this_sat_imager = imagers_list[sat_id]
+                # update each imager individualty:
+                this_sat_imager.adjust_exposure_time(Intensities)
+
+                image_per_imager_per_sat_per_pol_angle, radiance_to_graylevel_scale = \
+                    this_sat_imager.convert_radiance_to_graylevel(Intensities[pol_ang_index][sat_id], cancel_noise = cancel_noise)
+                GRAY_SCALE_IMAGES[pol_ang_index,sat_id,...] = image_per_imager_per_sat_per_pol_angle
+
+                radiance_to_electrons_scale = radiance_to_graylevel_scale/this_sat_imager.electrons2grayscale_factor
+
+                # image_per_imager_per_sat.shape = (nx,ny,channels)
+                # radiance_to_graylevel_scale.shape = (channels,)
+                # Back to normalized radiances but here it is with the added noise whith scales to radiance
+                radiance_per_imager_per_sat_per_pol_angle = image_per_imager_per_sat_per_pol_angle * (1/radiance_to_graylevel_scale)
+                electrons_per_sat_per_band_per_pol_angle = radiance_per_imager_per_sat_per_pol_angle*radiance_to_electrons_scale
+                # TODO - Ensure the feasability of the obove step with Yoav.
+                RADIANCE_IMAGES[pol_ang_index,sat_id,...] = radiance_per_imager_per_sat_per_pol_angle
+
+                a = np.squeeze(radiance_per_imager_per_sat_per_pol_angle) - Intensities[pol_ang_index][sat_id]
+                b = a/Intensities[pol_ang_index][sat_id]
+                NOISE_AMPLITURE_RATIO = 100*b.max()
+
+        Intensities = []
+        I_list = np.split(RADIANCE_IMAGES, N_polar_angles, axis=0)
+        for pol_ang_index in range(N_polar_angles):
+            I = np.split(np.squeeze(I_list[pol_ang_index]), N_views, axis=0)
+            A = []
+            for i in range(N_views):
+                A.append(np.squeeze(I[i]))
+            Intensities.append(A)
+        # Again:
+        # len(Intensities) - number of polarization angles.
+        # len(Intensities[0]) - number of views per this imager per polarization angle of the polarizer.
+
+        if N_polar_angles > 3:
+            # Here at least 3 measurements are needed
+            # Relevant for cases:
+            # 1. imager_type == 'Polarized_sensor'.
+            # 2. 3 or more imagers per satellite with imager_type == 'Polarized_filter'.
+            radiances_per_imager_retreived_camera_frame = retrieve_stokes_from_measurments(Intensities, M)
+            # insert noisy images into sensor dict:
+            sensor_dict_noisy_camera_frame = update_images_in_sensor_dict(radiances_per_imager_retreived_camera_frame, sensor_dict_camera_frame)
+            radiances_per_imager_back_meridian_frame, sensor_dict_noisy_back_meridian_frame = convertStocks(sensor_dict_noisy_camera_frame, Rsat, GSD, method='camera2meridian')
+
+            # shape of radiances_per_imager_back_meridian_frame[i] is
+            # the same as of radiances_per_imager_retreived_camera_frame,
+            # it is (num_stokes, cnx, cny, channels)
+            # visualize_Stocks(radiances_per_imager_back_meridian_frame,\
+            # sun_zenith,source_imager_wavelengths,projections.names,add_Ip = False, add_dolp = True, add_aolp = True, add2title = 'with noise - Meridian')
+    else: # to if(num_stokes >= 3):
+        # TODO
+        NotImplementedError()
+
+    return sensor_dict_noisy_back_meridian_frame
 
 
 # --------------------------------------------

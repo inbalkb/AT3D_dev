@@ -218,7 +218,7 @@ if(1):
     # make a grid for microphysics which is just the cloud grid.
     rte_grid = at3d.grid.make_grid(dx,cloud_scatterer.x.data.size,
                                    dy,cloud_scatterer.y.data.size,
-                              cloud_scatterer.z)
+                                merged_z_coordinate)
 
     cloud_scatterer_on_rte_grid = at3d.grid.resample_onto_grid(rte_grid, cloud_scatterer)
 
