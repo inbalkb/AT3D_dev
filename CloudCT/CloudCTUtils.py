@@ -864,6 +864,52 @@ def show_results(sensor_dict):
     print('done')
 
 
+def draw_scatter_plot(images_set1, images_set2, title_list):
+    pixel_precent = 0.5
+    assert images_set1.shape == images_set2.shape, "Can't compare images of different sizes."
+    assert len(title_list) == images_set1.shape[1], "wrong number of titles."
+    for index, title in enumerate(title_list):
+        curr_images_set1 = np.squeeze(images_set1.copy()[:,index, :, :])
+        curr_images_set2 = np.squeeze(images_set2.copy()[:, index, :, :])
+        fig, axarr = plt.subplots(int(images_set1.shape[0]/5), 5, figsize=(20, 20))
+        fig.subplots_adjust(hspace=0.2, wspace=0.2)
+        axarr = axarr.flatten()
+        for ax, image1, image2 in zip(axarr, curr_images_set1, curr_images_set2):
+            image1 = image1.ravel()
+            image2 = image2.ravel()
+            maxval = np.max([image1.max(), image2.max()])
+            minval = np.min([image1.min(), image2.min()])
+            rand_ind = np.random.choice(np.arange(len(image1)), size=int(pixel_precent * len(image1)), replace=False)
+            ax.plot(image1[rand_ind],image2[rand_ind],'.')
+            ax.plot([minval, maxval], [minval, maxval], '-r')
+            ax.set_xlabel("before noise")
+            ax.set_ylabel("after noise")
+        fig.suptitle(title, size=16, y=0.95)
+
+    plt.show()
+
+
+def create_images_list(sensor_dict,stokes_list,names):
+    images = []
+    for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
+        sensor_images = sensor_dict.get_images(instrument)
+        sensor_group_list = sensor_dict[instrument]['sensor_list']
+        assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+        for sensor_ind, sensor in enumerate(sensor_group_list):
+            if (stokes_list == ['I']) or (stokes_list == 'I'):
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T])
+            elif stokes_list == ['I', 'Q']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
+            elif stokes_list == ['I', 'Q', 'U']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                       sensor_images[sensor_ind].U.data.T])
+            elif stokes_list == ['I', 'Q', 'U', 'V']:
+                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
+                                       sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
+            images.append(curr_image)
+    return images
+
+
 def convertStocks(sensor_dict, r_sat, GSD, method='meridian2camera'):
     """
     TODO
@@ -1301,6 +1347,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
     Rsat = run_params['Rsat']
     GSD = run_params['GSD']
     cancel_noise = run_params['cancel_noise']
+    radiances_per_imager_meridian_frame = np.array(create_images_list(sensor_dict,run_params['stokes'], sat_names))
     if (num_stokes >= 3):
         imagers, use_stokes, stokes_weights, wavelength_averaging = setup_imagers(run_params, sun_zenith)
         gain_std_percents, global_bias_std_percents, forward_dir_uncertainty_addition = get_uncertainties(
@@ -1319,7 +1366,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
         # Like sony polarized sensor.
         polarizer_orientations_deg = [0, 45, 90, 135]  # imitate lucid camera with filters to 0°, 45°, 90° and 135°.
         # TODO - add unsertainties for the angles for each pixel?
-        Intensities, M = imitate_measurements_with_polarizer_at(list(radiances_per_imager_cam_frame),
+        Intensities_before_noise, M = imitate_measurements_with_polarizer_at(list(radiances_per_imager_cam_frame),
                                                                 polarizer_orientations_deg)
         # Matrix M calculates intensities from (I, Q, U) elements.
         # It will be used to convert back to (I, Q, U) elements.
@@ -1334,8 +1381,8 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
 
         # len(Intensities) - number of polarization angles.
         # len(Intensities[0]) - number of views per this imager per polarization angle of the polarizer.
-        N_polar_angles = len(Intensities)
-        N_views = len(Intensities[0])
+        N_polar_angles = len(Intensities_before_noise)
+        N_views = len(Intensities_before_noise[0])
         assert N_views == len(
             sat_names), "Something went wrong in the passage of the simulated stokes vector through simulated polarizers."
 
@@ -1366,10 +1413,10 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
                 # get the right imager from the list of setup imagers per this imager id:
                 this_sat_imager = imagers_list[sat_id]
                 # update each imager individualty:
-                this_sat_imager.adjust_exposure_time(Intensities)
+                this_sat_imager.adjust_exposure_time(Intensities_before_noise)
 
                 image_per_imager_per_sat_per_pol_angle, radiance_to_graylevel_scale = \
-                    this_sat_imager.convert_radiance_to_graylevel(Intensities[pol_ang_index][sat_id], cancel_noise = cancel_noise)
+                    this_sat_imager.convert_radiance_to_graylevel(Intensities_before_noise[pol_ang_index][sat_id], cancel_noise = cancel_noise)
                 GRAY_SCALE_IMAGES[pol_ang_index,sat_id,...] = image_per_imager_per_sat_per_pol_angle
 
                 radiance_to_electrons_scale = radiance_to_graylevel_scale/this_sat_imager.electrons2grayscale_factor
@@ -1382,18 +1429,21 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
                 # TODO - Ensure the feasability of the obove step with Yoav.
                 RADIANCE_IMAGES[pol_ang_index,sat_id,...] = radiance_per_imager_per_sat_per_pol_angle
 
-                a = np.squeeze(radiance_per_imager_per_sat_per_pol_angle) - Intensities[pol_ang_index][sat_id]
-                b = a/Intensities[pol_ang_index][sat_id]
+                a = np.squeeze(radiance_per_imager_per_sat_per_pol_angle) - Intensities_before_noise[pol_ang_index][sat_id]
+                b = a/Intensities_before_noise[pol_ang_index][sat_id]
                 NOISE_AMPLITURE_RATIO = 100*b.max()
 
-        Intensities = []
+        Intensities_after_noise = []
         I_list = np.split(RADIANCE_IMAGES, N_polar_angles, axis=0)
         for pol_ang_index in range(N_polar_angles):
             I = np.split(np.squeeze(I_list[pol_ang_index]), N_views, axis=0)
             A = []
             for i in range(N_views):
                 A.append(np.squeeze(I[i]))
-            Intensities.append(A)
+            Intensities_after_noise.append(A)
+        # draw_scatter_plot(np.swapaxes(np.array(Intensities_before_noise),0,1),
+        #                   np.swapaxes(np.array(Intensities_after_noise),0,1),
+        #                   ['pol 0', 'pol 45', 'pol 90', 'pol 135'])
         # Again:
         # len(Intensities) - number of polarization angles.
         # len(Intensities[0]) - number of views per this imager per polarization angle of the polarizer.
@@ -1403,16 +1453,21 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
             # Relevant for cases:
             # 1. imager_type == 'Polarized_sensor'.
             # 2. 3 or more imagers per satellite with imager_type == 'Polarized_filter'.
-            radiances_per_imager_retreived_camera_frame = retrieve_stokes_from_measurments(Intensities, M)
+            radiances_per_imager_retreived_camera_frame = retrieve_stokes_from_measurments(Intensities_after_noise, M)
+            # draw_scatter_plot(radiances_per_imager_cam_frame, np.squeeze(np.array(radiances_per_imager_retreived_camera_frame)),
+            #                   ['I cam', 'Q cam', 'U cam'])
             # insert noisy images into sensor dict:
-            sensor_dict_noisy_camera_frame = update_images_in_sensor_dict(radiances_per_imager_retreived_camera_frame, sensor_dict_camera_frame)
-            radiances_per_imager_back_meridian_frame, sensor_dict_noisy_back_meridian_frame = convertStocks(sensor_dict_noisy_camera_frame, Rsat, GSD, method='camera2meridian')
+            sensor_dict_noisy_camera_frame = update_images_in_sensor_dict(
+                radiances_per_imager_retreived_camera_frame, sensor_dict_camera_frame)
+            radiances_per_imager_back_meridian_frame, sensor_dict_noisy_back_meridian_frame = convertStocks(
+                sensor_dict_noisy_camera_frame, Rsat, GSD, method='camera2meridian')
 
             # shape of radiances_per_imager_back_meridian_frame[i] is
             # the same as of radiances_per_imager_retreived_camera_frame,
             # it is (num_stokes, cnx, cny, channels)
             # visualize_Stocks(radiances_per_imager_back_meridian_frame,\
             # sun_zenith,source_imager_wavelengths,projections.names,add_Ip = False, add_dolp = True, add_aolp = True, add2title = 'with noise - Meridian')
+        # draw_scatter_plot(radiances_per_imager_meridian_frame, radiances_per_imager_back_meridian_frame, ['I mer', 'Q mer', 'U mer'])
     else: # to if(num_stokes >= 3):
         # TODO
         NotImplementedError()

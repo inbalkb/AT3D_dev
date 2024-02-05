@@ -27,6 +27,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
+    # cloud_ids = [str(ind) for ind in np.arange(4000)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -432,26 +433,7 @@ def run_simulation(args):
 
         # ----------------------------------------------------
 
-        # images0 = []
-        # for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
-        #     sensor_images = sensor_dict.get_images(instrument)
-        #     sensor_group_list = sensor_dict[instrument]['sensor_list']
-        #     assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
-        #     for sensor_ind, sensor in enumerate(sensor_group_list):
-        #         copied = sensor.copy(deep=True)
-        #
-        #         # add image to 'images0' for visualization
-        #         if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-        #         elif run_params['stokes'] == ['I', 'Q']:
-        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
-        #         elif run_params['stokes'] == ['I', 'Q', 'U']:
-        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-        #                                    sensor_images[sensor_ind].U.data.T])
-        #         elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
-        #             curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-        #                                    sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
-        #         images0.append(curr_image)
+
         #
         # if 1:
         #     plot_cloud_images(images0)
@@ -512,20 +494,23 @@ def run_simulation(args):
         space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
         agreement = 0.8
         carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
-
+        mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
         npad = ((1, 1), (1, 1), (1, 1))
-        mask_data_padded = np.pad(carved_volume.mask.copy(),
+
+        mask_data_padded = np.pad(mask4file.copy(),
                                   pad_width=npad, mode='constant', constant_values=0)
+
+        mask4file = mask4file > 0  # convert from int to bool
 
         struct = ndimage.generate_binary_structure(3, 2)
         mask_morph = ndimage.binary_closing(mask_data_padded, struct)
         mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
 
         # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
-        carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
+        # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
         cloud = {'images': np.array(images),
-                 'mask': carved_volume.mask,
+                 'mask': mask4file,
                  'mask_morph': mask_morph,
                  'cloud_path': cloud_params['path'],
                  'sun_zenith': sun_zenith,
@@ -535,7 +520,7 @@ def run_simulation(args):
                  'ray_phi': np.array(ray_phi_list),
                  'cameras_pos': sat_positions,
                  'cameras_P': np.array(projection_matrices),
-                 'grid': grid
+                 'grid': np.float32(grid)
                  }
 
         if run_params['IS_SUN_WIND_CONST']:
@@ -720,5 +705,5 @@ if __name__ == '__main__':
             'max_gain': 5
         }
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    main(run_params, clouds_path)
-    # simple_main(run_params, clouds_path)
+    # main(run_params, clouds_path)
+    simple_main(run_params, clouds_path)
