@@ -863,6 +863,207 @@ def show_results(sensor_dict):
 
     print('done')
 
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+
+def convertStocks_vectorbase(sensor_dict, r_sat, GSD, method = 'meridian2camera'):
+    """
+    TODO
+    """
+    
+    sensor_dict_out = copy.deepcopy(sensor_dict)
+    
+    
+    VISUALIZE = True    
+    
+    
+    assert len(sensor_dict) == 1, "Currently doesn't soppurt more than 1 instrument"
+    FIRST_SENSOR = sensor_dict.get_image(list(sensor_dict.keys())[0], 0)
+    cnx, cny = FIRST_SENSOR.dims['imgdim0'],  FIRST_SENSOR.dims['imgdim1']# TODO what if the camera multiband?
+    npix = cnx*cny
+    nviews = len(sensor_dict.get_images(list(sensor_dict.keys())[0]))
+    sensor_list = sensor_dict[list(sensor_dict.keys())[0]]['sensor_list']
+    # list of <xarray.Dataset>
+    one_sensor_example = sensor_list[0]
+    
+
+    stokes_converted = np.zeros([nviews, 3, npix])
+    # stokes_converted size is [view,stokes,nx,ny]
+    
+    for instrument in sensor_dict:
+        sensor_images = sensor_dict.get_images(instrument)
+        sensor_list = sensor_dict[instrument]['sensor_list']
+        
+        
+        PNCHANNELS = 1 # polarized channels
+        pol_channels = ['I']
+        if 'Q' in list(sensor_images[0].keys()) and 'U' in list(sensor_images[0].keys()):
+            print(" The images are polarized")
+            PNCHANNELS = 3
+            pol_channels = ['I','Q','U']
+        else:
+            raise Exception("Stokes convertion can't work on unpolarized images.")
+
+        
+        
+                    
+        for sensor_index,sensor_image in enumerate(sensor_images):
+            stokes = np.dstack([sensor_image[pol_channel].data for pol_channel in pol_channels])
+            sensor = sensor_list[sensor_index]
+            
+            #--------------------------------------------------
+            #--------------------------------------------------
+            # get ray directions:
+            
+            ray_mus  = sensor.ray_mu
+            ray_phis = sensor.ray_phi
+            ray_xs   = sensor.ray_x
+            ray_ys   = sensor.ray_y
+            ray_zs   = sensor.ray_z
+        
+        
+            # angles to rays convertion
+            PHI = ray_phis
+            RAY_Z = ray_mus
+            RAY_X = np.sin(np.arccos(ray_mus))*np.cos(ray_phis) 
+            RAY_Y = np.sin(np.arccos(ray_mus))*np.sin(ray_phis)         
+            theta_rad_mat = np.zeros_like(RAY_Z)
+            #other view parameteres:
+            lookat = sensor.attrs['lookat']
+            position = sensor.attrs['position']
+            optical_axis_direction = lookat - position
+            # calc the principle ray direction
+            prd = optical_axis_direction / np.linalg.norm(optical_axis_direction)   
+            
+            rotation_matrix = sensor.attrs['rotation_matrix'].reshape(3,3)
+            
+            cam_dir_x =  np.dot(rotation_matrix,xaxis)
+            cam_dir_y =  np.dot(rotation_matrix,yaxis) 
+            cam_dir_z =  np.dot(rotation_matrix,zaxis) 
+            
+            
+            left_of_polarizer = cam_dir_y.copy()  #
+            left_of_polarizer = left_of_polarizer / np.linalg.norm(left_of_polarizer)
+            
+            # calc polaizer direction at the principle ray direction (prd)
+            polarizer_dir_at_prd = np.cross(left_of_polarizer, prd)  # this makes a perfect alinment of the polarizer with cameras x-axis
+        
+            
+            # rel_ang is the angle of rotation that the scocks vector in meridian frame should be
+            # transformed to get the stocks vector in the camera frame.
+
+            zenith_dir = np.array([0, 0, 1])
+            theta_rad_mat = np.zeros([cnx,cny])
+            
+            
+            #--------------------------------------------------
+            # vector calculations:
+            scale_for_lookats = 0.1*ray_zs.data+1 # km
+            scale_for_lookats = scale_for_lookats[np.newaxis,:]
+            ray_origins = np.vstack([ray_xs.data,ray_xs.data,ray_xs.data])
+            # ray_origins.shape is (3, cnx*cny)
+            ray_dirs = np.vstack([RAY_X.data,RAY_Y.data,RAY_Z.data])
+            # ray_dirs.shape is (3, cnx*cny)
+            
+            lookats_pix = ray_origins + scale_for_lookats*ray_dirs # we have a freadom to play with it i think.
+            # pick 3 point on the plane:
+            p1 = lookats_pix
+            p2 = ray_origins
+            p3 = lookats_pix + (zenith_dir*scale_for_lookats.T).T
+
+            # These two vectors are in the plane
+            v1 = p3 - p1
+            v2 = p2 - p1
+            # the cross product is a vector normal to the plane
+            r = np.cross(v1, v2,axis=0)
+            r_norm = np.linalg.norm(r, axis=0)
+            
+            # update polarizer_dir as the polarizer is spherical and any ray is perpendicular to its surface
+            polarizer_dir = np.cross(left_of_polarizer,ray_dirs,axis=0)
+            polarizer_phi = (np.arctan2(polarizer_dir[1], polarizer_dir[0]) + np.pi).astype(np.float64)
+            
+            # continue to meridian coordinates:
+            z = ray_dirs
+            r = r/np.linalg.norm(r, axis=0)
+            l = np.cross(z,r, axis=0)            
+            assert np.allclose(z , np.cross(r, l,axis=0)), "Bad calculation of vectors directions."
+            
+            # Find theta
+            # fast way of dot product from - https://stackoverflow.com/questions/37670658/python-dot-product-of-each-vector-in-two-lists-of-vectors
+            cos = np.einsum('ji, ji->i', polarizer_dir, l)
+            cos = np.clip(cos, -1, 1)
+            theta_rad = np.arccos(cos) # polarizer_dir for 0[deg] is lo direction.
+            
+            # Find dphi -  to dicide if the angle is theta_rad or -theta_rad.
+            d = PHI.data - polarizer_phi
+            dphi = -1*np.ones_like(d)
+            d[d>2*np.pi] = d[d>2*np.pi] - 2*np.pi
+            dphi[(d<=np.pi) * (d>=0)] = 1.0
+            dphi[(d<=-np.pi) * (d>=-2*np.pi)] = 1.0
+            
+            theta_rad *= dphi  # it is very important to give here the sign of theta.
+            theta_rad_mat = theta_rad
+            theta_rad_mat[r_norm==0] = 0
+            
+            theta_rad_mat = theta_rad_mat.reshape([cnx,cny], order='F')
+            #print(theta_rad_mat[50,50])
+            # out of the "if matrix exists"
+            
+            cos2theta = np.cos(2*theta_rad_mat).flatten()
+            sin2theta = np.sin(2*theta_rad_mat).flatten()
+            zeros = np.zeros_like(cos2theta)
+            ones = np.ones_like(cos2theta)
+            row0 = np.vstack([ones,zeros,zeros])[:,np.newaxis,:]
+            row1 = np.vstack([zeros,cos2theta,sin2theta])[:,np.newaxis,:]
+            row2 = np.vstack([zeros,-sin2theta,cos2theta])[:,np.newaxis,:]
+            row0 = row0.transpose([1,0,2])
+            row1 = row1.transpose([1,0,2])
+            row2 = row2.transpose([1,0,2])
+            ROT_MAT = np.vstack([row0,row1,row2])
+            # reminder:
+            # shape of stokes (cnx, cny, 3)
+            # shape of ROT_MAT (3,3,cnx*cny)
+            vector_stokes = np.reshape(stokes,[-1,3])
+            vector_stokes = vector_stokes.T
+            #vector_stokes = vector_stokes[:,np.newaxis,:]
+            # shape of vector_stokes (3,1,cnx*cny)
+            #vector_stokes_sq = np.squeeze(vector_stokes)
+            
+            if(method == 'meridian2camera'):
+                for index in range(npix):
+                    Sconvertaed_at_pixel = np.dot(ROT_MAT[...,index] , vector_stokes[...,index])
+                    # update the big matrix stock_converted:
+                    # stokes_converted size is [view,stokes,nx,ny]
+                    stokes_converted[sensor_index,:,index] = Sconvertaed_at_pixel
+                    
+            elif(method == 'camera2meridian'):
+                for index in range(npix):
+                    Sconvertaed_at_pixel = np.dot(np.linalg.inv(ROT_MAT[...,index]) , vector_stokes[...,index])
+                    stokes_converted[sensor_index,:,index] = Sconvertaed_at_pixel
+
+            else:
+                raise Exception("Unknown method of stokes convertion.")
+                
+            if np.any(np.isnan(stokes_converted[sensor_index,...])):
+                raise Exception("Bad rotation of the meridian/camera plane")
+            
+            
+                
+                
+            # Here we want to update the images of the sensor_dict, spesificaly: I, Q, U.
+            # here we still in the sensor_inxed loop.
+    
+            sensor_dict_out[instrument]['sensor_list'][sensor_index]['Q'].data = stokes_converted[sensor_index,1,...].reshape([cnx,cny], order='C').flatten(order='F')
+            sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = stokes_converted[sensor_index,2,...].reshape([cnx,cny], order='C').flatten(order='F')
+
+        stokes_converted = stokes_converted.reshape([nviews,3,cnx,cny], order='C')
+        print('here')
+            
+    return sensor_dict_out , stokes_converted         
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
+#--------------------------------------------------------------------------
 
 def convertStocks(sensor_dict, r_sat, GSD, method='meridian2camera'):
     """
