@@ -19,6 +19,8 @@ import copy
 import yaml
 import CloudCT_Imager
 import random
+import matplotlib
+matplotlib.use('TkAgg')
 
 # -------------------------------------------------------------------------------
 # ----------------------CONSTANTS------------------------------------------
@@ -1060,7 +1062,7 @@ def convertStocks_vectorbase(sensor_dict, r_sat, GSD, method = 'meridian2camera'
         stokes_converted = stokes_converted.reshape([nviews,3,cnx,cny], order='C')
         print('here')
             
-    return sensor_dict_out , stokes_converted         
+    return stokes_converted, sensor_dict_out
 #--------------------------------------------------------------------------
 #--------------------------------------------------------------------------
 #--------------------------------------------------------------------------
@@ -1086,6 +1088,7 @@ def draw_scatter_plot(images_set1, images_set2, title_list):
             ax.set_xlabel("before noise")
             ax.set_ylabel("after noise")
         fig.suptitle(title, size=16, y=0.95)
+        # plt.savefig('/home/inbalkom/Downloads/'+title+'_scatterplot.png')
 
     plt.show()
 
@@ -1098,15 +1101,9 @@ def create_images_list(sensor_dict,stokes_list,names):
         assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
         for sensor_ind, sensor in enumerate(sensor_group_list):
             if (stokes_list == ['I']) or (stokes_list == 'I'):
-                curr_image = np.array([sensor_images[sensor_ind].I.data.T])
-            elif stokes_list == ['I', 'Q']:
-                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T])
-            elif stokes_list == ['I', 'Q', 'U']:
-                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                       sensor_images[sensor_ind].U.data.T])
-            elif stokes_list == ['I', 'Q', 'U', 'V']:
-                curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
-                                       sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
+                curr_image = np.array([sensor_images[sensor_ind].I.data])
+            else:
+                curr_image = np.stack([sensor_images[sensor_ind][pol_channel].data for pol_channel in stokes_list])
             images.append(curr_image)
     return images
 
@@ -1562,7 +1559,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
         # setup imagers list. right now applies for only one imager/instrument type.
         imagers_list = [copy.deepcopy(imagers['imager_id_0']) for _ in np.arange(len(sat_names))]
 
-        radiances_per_imager_cam_frame, sensor_dict_camera_frame = convertStocks(sensor_dict, Rsat, GSD, method='meridian2camera')
+        radiances_per_imager_cam_frame, sensor_dict_camera_frame = convertStocks_vectorbase(sensor_dict, Rsat, GSD, method='meridian2camera')
 
         # Like sony polarized sensor.
         polarizer_orientations_deg = [0, 45, 90, 135]  # imitate lucid camera with filters to 0°, 45°, 90° and 135°.
@@ -1660,7 +1657,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
             # insert noisy images into sensor dict:
             sensor_dict_noisy_camera_frame = update_images_in_sensor_dict(
                 radiances_per_imager_retreived_camera_frame, sensor_dict_camera_frame)
-            radiances_per_imager_back_meridian_frame, sensor_dict_noisy_back_meridian_frame = convertStocks(
+            radiances_per_imager_back_meridian_frame, sensor_dict_noisy_back_meridian_frame = convertStocks_vectorbase(
                 sensor_dict_noisy_camera_frame, Rsat, GSD, method='camera2meridian')
 
             # shape of radiances_per_imager_back_meridian_frame[i] is

@@ -18,6 +18,8 @@ from mpl_toolkits.axes_grid1 import AxesGrid, make_axes_locatable
 from multiprocessing import Pool
 from itertools import repeat
 from CloudCTUtils import *
+import matplotlib
+matplotlib.use('TkAgg')
 
 # constants
 r_earth = 6371.0  # km
@@ -42,6 +44,7 @@ def simple_main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = [6004]
+    # cloud_ids = [350]
     for cloud_id in cloud_ids:
         cloud_name = str(cloud_id)
         cloud_path = '/'.join(clouds_path.split('/')[:-1])+'/cloud'+cloud_name+'.txt'
