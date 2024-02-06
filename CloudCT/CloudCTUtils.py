@@ -1,11 +1,10 @@
 import scipy.io as sio
+import scipy.special as ssp
 import matplotlib.pyplot as plt
 import numpy as np
 import at3d
 import matplotlib.pyplot as plt
 # import mayavi.mlab as mlab
-import numpy as np
-import scipy.io as sio
 import os
 import logging
 from collections import OrderedDict
@@ -1676,6 +1675,20 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
 # --------------------------------------------
 # --------------------------------------------
 # --------------------------------------------
+
+def generate_random_surface_wind_speed(wind_mean, wind_std):
+    """
+    Get random surface wind speed out of 2-parameters Weibull distribution.
+    The two parameters are approximated using the wind speed mean and STD,
+    as described in https://journals.ametsoc.org/view/journals/clim/19/4/jcli3640.1.xml
+    :param wind_mean - the wind speed mean (m/s) scalar
+    :param wind_std - the wind speed std (m/s) scalar
+    :return wind_speed - random wind speed in (m/s) scalar
+    """
+    a = (wind_mean/wind_std)**1.086
+    gamma = wind_mean/ssp.gamma(1+(1/a))
+    wind_speed = gamma * np.random.default_rng().weibull(a)
+    return wind_speed
 
 def generate_random_sun_angles_for_lat(Lat):
     day_num = np.random.default_rng().integers(1, high=365, endpoint=True)

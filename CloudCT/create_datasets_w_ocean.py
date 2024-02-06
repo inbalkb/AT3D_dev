@@ -153,7 +153,7 @@ def run_simulation(args):
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
     # surface = at3d.surface.lambertian(0.05)
-    if run_params['IS_SUN_WIND_CONST']:
+    if run_params['IS_SUN_WIND_CONST']==1:
         surface_wind_speed = run_params['surface_wind_speed_mean']
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
@@ -162,18 +162,25 @@ def run_simulation(args):
         sun_azimuth = run_params['const_sun_azimuth']
         sun_zenith = run_params['const_sun_zenith']
         print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
-    else:
-        surface_wind_speed = np.random.default_rng().normal(loc=run_params['surface_wind_speed_mean'],
-                                                        scale=run_params['surface_wind_speed_std'])
-        while surface_wind_speed < 0:
-            surface_wind_speed = np.random.default_rng().normal(loc=run_params['surface_wind_speed_mean'],
-                                                            scale=run_params['surface_wind_speed_std'])
+    elif run_params['IS_SUN_WIND_CONST']==0:
+        surface_wind_speed = generate_random_surface_wind_speed(
+            wind_mean=run_params['surface_wind_speed_mean'], wind_std=run_params['surface_wind_speed_std'])
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
                                             ground_temperature=run_params['temperature'])
         print('added wave_fresnel surface with varying wind speed of {} m/s'.format(surface_wind_speed))
         sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
         print('set varying sun_azimuth as {}deg and varying sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+    elif run_params['IS_SUN_WIND_CONST']==2:  # meaning: only wind is varying, sun is not.
+        surface_wind_speed = generate_random_surface_wind_speed(
+            wind_mean=run_params['surface_wind_speed_mean'], wind_std=run_params['surface_wind_speed_std'])
+        surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
+                                            surface_wind_speed=surface_wind_speed,
+                                            ground_temperature=run_params['temperature'])
+        print('added wave_fresnel surface with varying wind speed of {} m/s'.format(surface_wind_speed))
+        sun_azimuth = run_params['const_sun_azimuth']
+        sun_zenith = run_params['const_sun_zenith']
+        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
     for wavelength in mean_wavelengths:
         medium = {
             'cloud': optical_properties[wavelength],
@@ -436,8 +443,6 @@ def run_simulation(args):
 
         # ----------------------------------------------------
 
-
-        #
         # if 1:
         #     plot_cloud_images(images0)
         #     a = 5
@@ -526,10 +531,12 @@ def run_simulation(args):
                  'grid': np.float32(grid)
                  }
 
-        if run_params['IS_SUN_WIND_CONST']:
+        if run_params['IS_SUN_WIND_CONST'] == 1:
             path_stamp = 'const_env_params'
-        else:
+        elif run_params['IS_SUN_WIND_CONST'] == 0:
             path_stamp = 'varying_env_params'
+        elif run_params['IS_SUN_WIND_CONST'] == 2:
+            path_stamp = 'varying_wind_const_sun'
         filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
                                 'cloud_results_' + cloud_name + '.pkl')
         print(f'saving cloud in {filename}')
@@ -659,8 +666,8 @@ if __name__ == '__main__':
                   'stokes': ['I', 'Q', 'U'],
                   'max_simultaneous_simulations': 5,
                   'surface_wind_speed_mean': 6.67,  # m/s
-                  'surface_wind_speed_std': 2.5,  # m/s
-                  'IS_SUN_WIND_CONST': True,
+                  'surface_wind_speed_std': 1.5,  # m/s
+                  'IS_SUN_WIND_CONST': 2,
                   'cancel_noise': False
                   }
     if run_params['IF_AIRMSPI']:
