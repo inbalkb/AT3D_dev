@@ -472,6 +472,52 @@ def StringOfPearls(SATS_NUMBER=10, orbit_altitude=500, widest_view=False, move_n
     return sat_positions.T, near_nadir_view_index, theta_max, theta_min
 
 
+def CreateVaryingStringOfPearls(SATS_NUMBER=10, ORBIT_ALTITUDE=500, move_nadir_x=0, move_nadir_y=0, DX=0, DY=0, DZ=0, N=1):
+    """
+    Create the Multiview setup on orbit direct them with lookat vector and set the Imagers at thier locations + orientations.
+    The output here will be a list of Imagers. Each Imager will be updated here with respect to the defined geomtric considerations.
+
+
+    Parameters:
+    input:
+        SATS_NUMBER - the number of satellites in the setup, int.
+        ORBIT_ALTITUDE - in km  , float.
+        DX - perturbation limit in X axis (perturbation allowed between +-DX from sat location)
+        DY - perturbation limit in Y axis (perturbation allowed between +-DY from sat location)
+        DZ - perturbation limit in Z axis (perturbation allowed between +-DZ from sat location)
+        N - number of perturbation augmentations, int
+    output:
+        sat_positions - position of each perturbed satellite, ndarray of size (N, SATS_NUMBER, 3)
+        near_nadir_view_indices - index of the near nadir satellite for each perturbation, ndarray of size (N)
+        theta_max - maximum theta angle for each perturbation, ndarray of size (N)
+        theta_min - minimum theta angle for each perturbation, ndarray of size (N)
+    """
+
+    sat_positions, _, _, _ = StringOfPearls(SATS_NUMBER=SATS_NUMBER, orbit_altitude=ORBIT_ALTITUDE,
+                                    move_nadir_x=move_nadir_x,
+                                    move_nadir_y=move_nadir_y)
+    sat_positions = np.stack([sat_positions]*N)
+    dx = np.random.uniform(low=-DX, high=DX, size=(N,SATS_NUMBER))
+    dy = np.random.uniform(low=-DY, high=DY, size=(N,SATS_NUMBER))
+    dz = np.random.uniform(low=-DZ, high=DZ, size=(N,SATS_NUMBER))
+    sat_positions[:, :, 0] += dx
+    sat_positions[:, :, 1] += dy
+    sat_positions[:, :, 2] += dz
+    X_config = np.squeeze(sat_positions[:, :, 0])
+    Y_config = np.squeeze(sat_positions[:, :, 1])
+    Z_config = np.squeeze(sat_positions[:, :, 2])
+
+    # find near nadir view:
+    # since in this setup (sat_y-lookat_y)=0:
+    near_nadir_view_indices = np.argmin(np.abs(X_config), axis=1)
+
+    # find theta angles for cloudbow
+    satellites_theta_angles = np.rad2deg(np.arctan(X_config / (Z_config+r_earth)))
+    theta_max, theta_min = np.max(satellites_theta_angles, axis=1), np.min(satellites_theta_angles, axis=1)
+
+    return sat_positions, near_nadir_view_indices, theta_max, theta_min
+
+
 def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), cloudbow_additional_scan=6,
                                cloudbow_range=[135, 155], theta_max=60, theta_min=-60, sun_zenith=180, sun_azimuth=0,
                                move_nadir_x=0, move_nadir_y=0):

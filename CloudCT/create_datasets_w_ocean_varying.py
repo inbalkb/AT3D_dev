@@ -29,7 +29,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    cloud_ids = [str(ind) for ind in np.arange(2000, 11000)]
+    # cloud_ids = [str(ind) for ind in np.arange(4000)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -58,6 +58,8 @@ def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
 
+    if run_params['IF_AIRMSPI']:
+        NotImplementedError()
     if run_params['IF_AIRMSPI']:
         Inbals_projections_path = '/wdata/inbalkom/Data/AirMSPI/Projections/train'
         # output_base_path = run_params['satellites_images_path']
@@ -153,7 +155,7 @@ def run_simulation(args):
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
     # surface = at3d.surface.lambertian(0.05)
-    if run_params['IS_SUN_WIND_CONST']==1:
+    if run_params['IS_SUN_WIND_CONST'] == 1:
         surface_wind_speed = run_params['surface_wind_speed_mean']
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
@@ -324,12 +326,13 @@ def run_simulation(args):
         Rsat = run_params['Rsat']  # km
         SATS_NUMBER_SETUP = run_params['SATS_NUMBER']
         cloudbow_additional_scan = run_params['cloudbow_additional_scan']
+        AUG_NUM = run_params['num_sat_locs_augmentations']
         sensor_dict = at3d.containers.SensorsDict()
 
         xgrid = np.float32(cloud_scatterer.x.data)
         ygrid = np.float32(cloud_scatterer.y.data)
         zgrid = np.float32(cloud_scatterer.z.data)
-        grid = np.array([xgrid, ygrid, zgrid], dtype=object)
+        grid = np.array([xgrid, ygrid, zgrid])
 
         dx = cloud_scatterer.delx.item()
         dy = cloud_scatterer.dely.item()
@@ -360,80 +363,85 @@ def run_simulation(args):
         if (IFTUNE_CAM):
             LOOKAT[2] = 0.68 * nx * dz  # tuning. if IFTUNE_CAM = False, just lookat the bottom
 
-        SAT_LOOKATS = np.array(SATS_NUMBER_SETUP * LOOKAT).reshape(-1,
-                                                                   3)  # currently, all satellites lookat the same point.
+        SAT_LOOKATS = LOOKAT * np.ones((AUG_NUM, SATS_NUMBER_SETUP, 3))
+        # currently, all satellites lookat the same point.
+        # (AUG_NUM, SATS_NUMBER, 3)
 
-        print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
+        xvar = 25  # km
+        yvar = 25  # km
+        zvar = 25  # km
+        sat_positions, near_nadir_view_indices, theta_max, theta_min = CreateVaryingStringOfPearls(
+            SATS_NUMBER=SATS_NUMBER_SETUP, ORBIT_ALTITUDE=Rsat, move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+            move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1], DX=xvar, DY=yvar, DZ=zvar, N=AUG_NUM)
 
-        print("CAMERA intrinsics summary")
-        print("fov = {}[deg], cnx = {}[pixels],cny ={}[pixels]".format(fov, cnx, cny))
+        names = [["aug" + str(aug_ind) + "_sat" + str(i + 1) for i in range(len(sat_position_vec))] for
+                 aug_ind, sat_position_vec in enumerate(sat_positions)]
 
-        print(20 * "-")
-        print(20 * "-")
-        print(20 * "-")
-
-        sat_positions, near_nadir_view_index, theta_max, theta_min = \
-            StringOfPearls(SATS_NUMBER=SATS_NUMBER_SETUP,
-                           orbit_altitude=Rsat,
-                           move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                           move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1])
-
-        names = ["sat" + str(i + 1) for i in range(len(sat_positions))]
-
-        if cloudbow_additional_scan>0:
+        if cloudbow_additional_scan > 0:
             print(f"CloudCT has {cloudbow_additional_scan} samples in the cloudbow range.")
 
-            if np.all(np.all(SAT_LOOKATS, axis=0)):
-                cloudbow_lookat = SAT_LOOKATS[0, :]
-            else:
-                # if the lookats are different, just calculate the mean lookat.
-                cloudbow_lookat = np.mean(SAT_LOOKATS, axis=0)
+            # preallocate space for all cloudbow positions, lookats and names:
+            sat_positions = np.concatenate(
+                (sat_positions, np.zeros([sat_positions.shape[0], cloudbow_additional_scan, sat_positions.shape[2]])), axis=1)
+            SAT_LOOKATS = np.concatenate(
+                (SAT_LOOKATS, np.zeros([SAT_LOOKATS.shape[0], cloudbow_additional_scan, SAT_LOOKATS.shape[2]])), axis=1)
+            names = [aug_list + cloudbow_additional_scan*['0'] for aug_list in names]
+            for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
+                    in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
+                if np.all(np.all(curr_lookats[:SATS_NUMBER_SETUP], axis=0)):
+                    cloudbow_lookat = curr_lookats[0, :]
+                else:
+                    # if the lookats are different, just calculate the mean lookat.
+                    cloudbow_lookat = np.mean(curr_lookats, axis=0)
 
-            cloud_bow_sat_positions = \
-                StringOfPearlsCloudBowScan(Rsat,
-                                             cloudbow_lookat,
-                                             cloudbow_additional_scan,
-                                             run_params['cloudbow_range'],
-                                             theta_max, theta_min,
-                                             sun_zenith, sun_azimuth,
-                                             move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                             move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
-                                             )
+                cloud_bow_sat_positions = \
+                    StringOfPearlsCloudBowScan(Rsat,
+                                               cloudbow_lookat,
+                                               cloudbow_additional_scan,
+                                               run_params['cloudbow_range'],
+                                               curr_theta_max, curr_theta_min,
+                                               sun_zenith, sun_azimuth,
+                                               move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                               move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
+                                               )
 
-            # what is the scan_imager_index?
-            distances = sat_positions - cloud_bow_sat_positions[0]
-            distances = np.linalg.norm(distances, axis=1)
-            scan_imager_index = np.argmin(distances)
-            # update positions, lookats and names:
-            sat_positions = np.append(sat_positions, cloud_bow_sat_positions, axis=0)
-            cloudbow_lookat = np.tile(cloudbow_lookat, (cloudbow_additional_scan, 1))
-            SAT_LOOKATS = np.append(SAT_LOOKATS, cloudbow_lookat, axis=0)
+                # what is the scan_imager_index?
+                distances = curr_sat_positions - cloud_bow_sat_positions[0]
+                distances = np.linalg.norm(distances, axis=1)
+                scan_imager_index = np.argmin(distances)
+                # update positions, lookats and names:
+                curr_sat_positions[SATS_NUMBER_SETUP:, :] = cloud_bow_sat_positions
+                curr_lookats[SATS_NUMBER_SETUP:, :] = cloudbow_lookat
+                for i in range(cloudbow_additional_scan):
+                    curr_names[SATS_NUMBER_SETUP+i] = curr_names[scan_imager_index] + '_s{}'.format(i + 1)
+                curr_names[scan_imager_index] = curr_names[scan_imager_index] + '_s{}'.format(0)
 
-            for i in range(cloudbow_additional_scan):
-                names.append(names[scan_imager_index] + '_s{}'.format(i + 1))
-            names[scan_imager_index] = names[scan_imager_index] + '_s{}'.format(0)
+                assert curr_sat_positions.shape[1] == 3, "Problem in satellites positions."
+                assert curr_lookats.shape[1] == 3, "Problem in satellites pointing."
+                assert len(curr_names) == (cloudbow_additional_scan + SATS_NUMBER_SETUP), \
+                    "Problem in satellites counting."
 
-            assert sat_positions.shape[1] == 3, "Problem in satellites positions."
-            assert SAT_LOOKATS.shape[1] == 3, "Problem in satellites pointing."
-            assert len(names) == (cloudbow_additional_scan + SATS_NUMBER_SETUP), \
-                "Problem in satellites counting."
+            up_list = np.array([0, 1, 0]) * np.ones_like(sat_positions)
+            # up_list = np.array(len(sat_positions) * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
 
-        # we intentionally, work with projections lists.
-        up_list = np.array(len(sat_positions) * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
-        for mean_wavelength in mean_wavelengths:
-            for position_vector, lookat_vector, up_vector in zip(sat_positions,
-                                                                       SAT_LOOKATS, up_list):
-                loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
-                                                                 x_resolution=cnx, y_resolution=cny,
-                                                                 position_vector=position_vector,
-                                                                 lookat_vector=lookat_vector,
-                                                                 up_vector=up_vector, stokes=run_params['stokes'],
-                                                                 sub_pixel_ray_args={'method': at3d.sensor.stochastic,
-                                                                                     'nrays': 1})
+            # we intentionally, work with projections lists.
+            names_listed = []
+            for mean_wavelength in mean_wavelengths:
+                for curr_sat_positions, curr_SAT_LOOKATS, curr_up_list, curr_names \
+                        in zip(sat_positions, SAT_LOOKATS, up_list, names):
+                    for position_vector, lookat_vector, up_vector, name in zip(curr_sat_positions,
+                                                                         curr_SAT_LOOKATS, curr_up_list, curr_names):
+                        loop_sensor = at3d.sensor.perspective_projection(wavelength=mean_wavelength, fov=fov,
+                                                                         x_resolution=cnx, y_resolution=cny,
+                                                                         position_vector=position_vector,
+                                                                         lookat_vector=lookat_vector,
+                                                                         up_vector=up_vector, stokes=run_params['stokes'],
+                                                                         sub_pixel_ray_args={
+                                                                             'method': at3d.sensor.stochastic,
+                                                                             'nrays': 1})
 
-                sensor_dict.add_sensor('CloudCT'+str(int(mean_wavelength*1e3)), loop_sensor)
+                        sensor_dict.add_sensor('CloudCT' + str(int(mean_wavelength * 1e3)), loop_sensor)
+                        names_listed=names_listed+[name]
         print('Done defining CloudCT''s sensors')
         print('getting CloudCT''s measurments')
         # Next part will be the rendering, when the RTE solver is prepared (below).
@@ -448,37 +456,40 @@ def run_simulation(args):
         #     a = 5
 
         if not run_params['cancel_noise']:
-            sensor_dict = add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, names, cnx, cny)
+            sensor_dict = add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, names_listed, cnx, cny)
 
         # ----------------------------------------------------
 
-        sensor_list = []
-        images = []
-        ray_mu_list = []
-        ray_phi_list = []
-        projection_matrices = []
+        # preallocate parameters:
+        sensor_list4SC = [['0' for _ in range(SATS_NUMBER_SETUP)] for _ in range(AUG_NUM)]
+        images = np.zeros([AUG_NUM, (SATS_NUMBER_SETUP+cloudbow_additional_scan), len(run_params['stokes']), cnx, cny])
+        ray_mu = np.zeros([AUG_NUM, (SATS_NUMBER_SETUP+cloudbow_additional_scan), cnx, cny])
+        ray_phi = np.zeros([AUG_NUM, (SATS_NUMBER_SETUP+cloudbow_additional_scan), cnx, cny])
+        projection_matrices = np.zeros([AUG_NUM, (SATS_NUMBER_SETUP+cloudbow_additional_scan), 3, 4])
         for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
             sensor_images = sensor_dict.get_images(instrument)
             sensor_group_list = sensor_dict[instrument]['sensor_list']
-            assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
-            for sensor_ind, sensor in enumerate(sensor_group_list):
+            assert len(names_listed) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+            for sensor_ind, (sensor, name) in enumerate(zip(sensor_group_list, names_listed)):
+                aug_ind, sat_ind = np.unravel_index(sensor_ind, (AUG_NUM, (SATS_NUMBER_SETUP+cloudbow_additional_scan)))
+
                 copied = sensor.copy(deep=True)
 
                 # add ray_mu and ray_phi to lists for future scattering plane calculations
-                ray_mu_list.append(copied.ray_mu.data)
-                ray_phi_list.append(copied.ray_phi.data)
+                ray_mu[aug_ind, sat_ind, :, :] = copied.ray_mu.data.reshape(copied.image_shape.data, order='F')
+                ray_phi[aug_ind, sat_ind, :, :] = copied.ray_phi.data.reshape(copied.image_shape.data, order='F')
 
                 # create 'sensor_list' for space carving - without cloudbow!
 
-                if (len(names[sensor_ind].split('_')) == 1) or (len(names[sensor_ind].split('_'))==2 and names[sensor_ind][-2:] == 's0'):
+                if sat_ind<SATS_NUMBER_SETUP:
                     ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
-                    ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
+                    ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sat_ind])] = 1
                     copied['weights'] = ('nrays', copied.I.data)
                     copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
-                    sensor_list.append(copied)
+                    sensor_list4SC[aug_ind][sat_ind] = copied
 
                 # add projection_matrix to 'projection_matrices' in order to save in file
-                projection_matrices.append(np.reshape(copied.attrs['projection_matrix'], (3, 4)))
+                projection_matrices[aug_ind, sat_ind, :, :] = np.reshape(copied.attrs['projection_matrix'], (3, 4))
 
                 # add image to 'images' in order to save in file
 
@@ -492,7 +503,7 @@ def run_simulation(args):
                 elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
                     curr_image = np.array([sensor_images[sensor_ind].I.data.T, sensor_images[sensor_ind].Q.data.T,
                                            sensor_images[sensor_ind].U.data.T, sensor_images[sensor_ind].V.data.T])
-                images.append(curr_image)
+                images[aug_ind, sat_ind, :, :, :] = curr_image
 
         if 0:
             plot_cloud_images(images)
@@ -501,33 +512,37 @@ def run_simulation(args):
         print('getting CloudCT''s space carving')
         space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
         agreement = 0.8
-        carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
-        mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
         npad = ((1, 1), (1, 1), (1, 1))
+        mask_per_aug = np.zeros([AUG_NUM, cloud_scatterer.x.data.size, cloud_scatterer.y.data.size, cloud_scatterer.z.data.size], dtype='bool')
+        mask_morph_per_aug = np.zeros_like(mask_per_aug, dtype='bool')
+        for aug_ind, sensor_list in enumerate(sensor_list4SC):
+            carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
+            mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
+            mask_per_aug[aug_ind, :, :, :] = mask4file>0
 
-        mask_data_padded = np.pad(mask4file.copy(),
+            mask_data_padded = np.pad(mask4file.copy(),
                                   pad_width=npad, mode='constant', constant_values=0)
 
-        mask4file = mask4file > 0  # convert from int to bool
 
-        struct = ndimage.generate_binary_structure(3, 2)
-        mask_morph = ndimage.binary_closing(mask_data_padded, struct)
-        mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
+            struct = ndimage.generate_binary_structure(3, 2)
+            mask_morph = ndimage.binary_closing(mask_data_padded, struct)
+            mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
+            mask_morph_per_aug[aug_ind, :, :, :] = mask_morph
 
         # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
         # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
-        cloud = {'images': np.array(images),
-                 'mask': mask4file,
-                 'mask_morph': mask_morph,
+        cloud = {'images': images,
+                 'mask': mask_per_aug,
+                 'mask_morph': mask_morph_per_aug,
                  'cloud_path': cloud_params['path'],
                  'sun_zenith': sun_zenith,
                  'sun_azimuth': sun_azimuth,
                  'wind_speed': surface_wind_speed,
-                 'ray_mu': np.array(ray_mu_list),
-                 'ray_phi': np.array(ray_phi_list),
+                 'ray_mu': ray_mu,
+                 'ray_phi': ray_phi,
                  'cameras_pos': sat_positions,
-                 'cameras_P': np.array(projection_matrices),
+                 'cameras_P': projection_matrices,
                  'grid': grid
                  }
 
@@ -668,6 +683,7 @@ if __name__ == '__main__':
                   'surface_wind_speed_mean': 6.67,  # m/s
                   'surface_wind_speed_std': 1.5,  # m/s
                   'IS_SUN_WIND_CONST': 1,
+                  'num_sat_locs_augmentations': 5,
                   'cancel_noise': False
                   }
     if run_params['IF_AIRMSPI']:
@@ -684,8 +700,7 @@ if __name__ == '__main__':
         run_params['wavelengths'] = [[0.620, 0.670]]
         run_params['radiance_thresholds'] = run_params['SATS_NUMBER']*[0.0255]
         run_params['images_path_for_nn'] = \
-            "/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/"
-            # '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/'
+            '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/'
         run_params['Lat_for_sun_angles'] = -10  # According to what Vadim sent me
         run_params['Rsat'] = 500  # km
         run_params['GSD'] = 0.02  # in km, it is the ground spatial resolution.
@@ -715,7 +730,6 @@ if __name__ == '__main__':
             'max_bias': 5,
             'max_gain': 5
         }
-    clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
-        #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     # main(run_params, clouds_path)
     simple_main(run_params, clouds_path)
