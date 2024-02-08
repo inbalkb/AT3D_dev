@@ -537,6 +537,7 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
                 desired_thetas[i] = candidat
                 low_bound = candidat - d
                 up_bound = candidat + d  # degrees
+                sat_sun_angles[j] = -200  # give invalid value
                 break
             else:
                 sat_sun_angles[j] = -200  # give invalid value
@@ -562,7 +563,7 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
     interpreted_thetas = np.deg2rad(interpreted_thetas)# convert to redian
     """
 
-    # if we can't get all of the desired cloudbow angles, just continue scanning with the same dtheta between scans:
+    # if we can't get all the desired cloudbow angles, just continue scanning with the same dtheta between scans:
     dtheta = np.diff(desired_thetas)
     new_theta_inds = np.argwhere(np.abs(dtheta) < 1e-5)
     if new_theta_inds.size != 0 and np.array_equal(new_theta_inds.ravel(), np.arange(new_theta_inds[0], len(dtheta))):
@@ -1544,7 +1545,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
     Rsat = run_params['Rsat']
     GSD = run_params['GSD']
     cancel_noise = run_params['cancel_noise']
-    radiances_per_imager_meridian_frame = np.array(create_images_list(sensor_dict,run_params['stokes'], sat_names))
+    radiances_per_imager_meridian_frame = np.array(create_images_list(sensor_dict, run_params['stokes'], sat_names))
     if (num_stokes >= 3):
         imagers, use_stokes, stokes_weights, wavelength_averaging = setup_imagers(run_params, sun_zenith)
         gain_std_percents, global_bias_std_percents, forward_dir_uncertainty_addition = get_uncertainties(

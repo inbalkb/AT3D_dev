@@ -29,7 +29,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    # cloud_ids = [str(ind) for ind in np.arange(4000)]
+    cloud_ids = [str(ind) for ind in np.arange(2000, 11000)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -326,10 +326,10 @@ def run_simulation(args):
         cloudbow_additional_scan = run_params['cloudbow_additional_scan']
         sensor_dict = at3d.containers.SensorsDict()
 
-        xgrid = cloud_scatterer.x
-        ygrid = cloud_scatterer.y
-        zgrid = cloud_scatterer.z
-        grid = np.array([xgrid, ygrid, zgrid])
+        xgrid = np.float32(cloud_scatterer.x)
+        ygrid = np.float32(cloud_scatterer.y)
+        zgrid = np.float32(cloud_scatterer.z)
+        grid = np.array([xgrid, ygrid, zgrid], dtype=object)
 
         dx = cloud_scatterer.delx.item()
         dy = cloud_scatterer.dely.item()
@@ -528,7 +528,7 @@ def run_simulation(args):
                  'ray_phi': np.array(ray_phi_list),
                  'cameras_pos': sat_positions,
                  'cameras_P': np.array(projection_matrices),
-                 'grid': np.float32(grid)
+                 'grid': grid
                  }
 
         if run_params['IS_SUN_WIND_CONST'] == 1:
@@ -667,7 +667,7 @@ if __name__ == '__main__':
                   'max_simultaneous_simulations': 5,
                   'surface_wind_speed_mean': 6.67,  # m/s
                   'surface_wind_speed_std': 1.5,  # m/s
-                  'IS_SUN_WIND_CONST': 2,
+                  'IS_SUN_WIND_CONST': 1,
                   'cancel_noise': False
                   }
     if run_params['IF_AIRMSPI']:
@@ -684,7 +684,8 @@ if __name__ == '__main__':
         run_params['wavelengths'] = [[0.620, 0.670]]
         run_params['radiance_thresholds'] = run_params['SATS_NUMBER']*[0.0255]
         run_params['images_path_for_nn'] = \
-            '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/'
+            "/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/"
+            # '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/'
         run_params['Lat_for_sun_angles'] = -10  # According to what Vadim sent me
         run_params['Rsat'] = 500  # km
         run_params['GSD'] = 0.02  # in km, it is the ground spatial resolution.
@@ -714,6 +715,7 @@ if __name__ == '__main__':
             'max_bias': 5,
             'max_gain': 5
         }
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
+        #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     # main(run_params, clouds_path)
     simple_main(run_params, clouds_path)

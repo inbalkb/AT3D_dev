@@ -1494,21 +1494,21 @@ class Imager(object):
 
         # test_reached_well_percents = 100*(test_reached_well/self._sensor.full_well)
 
-        print(" \n\n\n\n-------------- Exposure time consideration of {}:-----------".format(self.imager_type))
-        print(" The exposure time was set to {} micro sec.".format(float_round(self._exposure_time)))
+        # print(" \n\n\n\n-------------- Exposure time consideration of {}:-----------".format(self.imager_type))
+        # print(" The exposure time was set to {} micro sec.".format(float_round(self._exposure_time)))
         if (t < self._exposure_time):
             self._exposure_time = t - 10  # - 10 micros it is a margin
-            print("The adjusted exposure time becouce of saturation is {} micro sec.".format(
-                float_round(self._exposure_time)))
+            # print("The adjusted exposure time becouce of saturation is {} micro sec.".format(
+            #     float_round(self._exposure_time)))
 
 
         else:
             # means we far from full well, t > self._exposure_time
             self._exposure_time = t - 10
-            print("The adjusted exposure time becouce of low signal is {} micro sec.".format(
-                float_round(self._exposure_time)))
-            print(
-                "If you still want to change the exposure time, use set_exposure_time() method and do not use adjust_exposure_time().")
+            # print("The adjusted exposure time becouce of low signal is {} micro sec.".format(
+            #     float_round(self._exposure_time)))
+            # print(
+            #     "If you still want to change the exposure time, use set_exposure_time() method and do not use adjust_exposure_time().")
 
         # double check:
         for channel_index, channel in enumerate(self._channels):
@@ -1529,12 +1529,12 @@ class Imager(object):
             # The 1e-6* scales electrons_number to units of [electrons]
             # Thus:
             channel_reached_well = 1e-6 * GAMMA_lambda_INTEGRAL_lambda * max_of_images_per_channel * self._exposure_time  # how much electrons generated for current exposur time
-            print("At channel {} at maximum, the well is {}%.".format(channel, 100 * (
-                        channel_reached_well / self._sensor.full_well)))
+            # print("At channel {} at maximum, the well is {}%.".format(channel, 100 * (
+            #             channel_reached_well / self._sensor.full_well)))
 
-        print((40 * "-") + "\n")
-        print((40 * "-") + "\n")
-        print((40 * "-") + "\n")
+        # print((40 * "-") + "\n")
+        # print((40 * "-") + "\n")
+        # print((40 * "-") + "\n")
 
     def get_GAMMA_lambda(self):
         """
