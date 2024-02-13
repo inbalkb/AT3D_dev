@@ -1,4 +1,4 @@
-import cv2
+#import cv2
 import at3d
 import numpy as np
 import xarray as xr
@@ -376,50 +376,83 @@ def run_simulation(args):
 
         names = [["aug" + str(aug_ind) + "_sat" + str(i + 1) for i in range(len(sat_position_vec))] for
                  aug_ind, sat_position_vec in enumerate(sat_positions)]
-
+        
+        
         if cloudbow_additional_scan > 0:
             print(f"CloudCT has {cloudbow_additional_scan} samples in the cloudbow range.")
 
-            # preallocate space for all cloudbow positions, lookats and names:
-            sat_positions = np.concatenate(
-                (sat_positions, np.zeros([sat_positions.shape[0], cloudbow_additional_scan, sat_positions.shape[2]])), axis=1)
-            SAT_LOOKATS = np.concatenate(
-                (SAT_LOOKATS, np.zeros([SAT_LOOKATS.shape[0], cloudbow_additional_scan, SAT_LOOKATS.shape[2]])), axis=1)
-            names = [aug_list + cloudbow_additional_scan*['0'] for aug_list in names]
+            #---------------------------------------------------------------
+            #---------------------------------------------------------------
+            #---------------------------------------------------------------
+            # ------VADIM ADDED the cloudbow scan --------------------------
+            bloudbow_sat_positions = []
+            bloudbow_sat_lookats = []
+            bloudbow_sat_names = []
+        
+        
             for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
-                    in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
+                in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
                 if np.all(np.all(curr_lookats[:SATS_NUMBER_SETUP], axis=0)):
                     cloudbow_lookat = curr_lookats[0, :]
                 else:
                     # if the lookats are different, just calculate the mean lookat.
                     cloudbow_lookat = np.mean(curr_lookats, axis=0)
-
-                cloud_bow_sat_positions = \
-                    StringOfPearlsCloudBowScan(Rsat,
-                                               cloudbow_lookat,
-                                               cloudbow_additional_scan,
-                                               run_params['cloudbow_range'],
-                                               curr_theta_max, curr_theta_min,
-                                               sun_zenith, sun_azimuth,
-                                               move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                               move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
-                                               )
-
-                # what is the scan_imager_index?
-                distances = curr_sat_positions - cloud_bow_sat_positions[0]
-                distances = np.linalg.norm(distances, axis=1)
-                scan_imager_index = np.argmin(distances)
-                # update positions, lookats and names:
-                curr_sat_positions[SATS_NUMBER_SETUP:, :] = cloud_bow_sat_positions
-                curr_lookats[SATS_NUMBER_SETUP:, :] = cloudbow_lookat
+        
+        
+                #---------------------------------------------------------------
+                #---------------------------------------------------------------
+                #---------------------------------------------------------------
+                # ------what is the scan_imager_index?--------------------------
+                cloudbow_range = run_params['cloudbow_range']
+                flight_direction = [-1, 0, 0]
+        
+                interpreted_sat_positions, sat_index, cloudbow_sample_angles, not_cloudbow_startind = \
+                    AddCloudBowScan2VaryingStringOfPearls(sat_positions=curr_sat_positions,\
+                                                          lookat=cloudbow_lookat,\
+                                                          cloudbow_additional_scan=cloudbow_additional_scan,\
+                                                          cloudbow_range=cloudbow_range,\
+                                                          theta_max=curr_theta_max,\
+                                                          theta_min=curr_theta_min,\
+                                                          sun_zenith=sun_zenith, sun_azimuth=sun_azimuth)
+        
+                curr_bloudbow_sat_lookats   = np.tile(cloudbow_lookat,[(cloudbow_additional_scan),1])
+                curr_bloudbow_sat_positions = interpreted_sat_positions
+        
+                print(20*"-")
+                print(20*"-")
+               
                 for i in range(cloudbow_additional_scan):
-                    curr_names[SATS_NUMBER_SETUP+i] = curr_names[scan_imager_index] + '_s{}'.format(i + 1)
-                curr_names[scan_imager_index] = curr_names[scan_imager_index] + '_s{}'.format(0)
-
+                    curr_names.append(curr_names[sat_index]+ "_s{}_{}".format(i+1,int(cloudbow_sample_angles[i])))
+                
+                
+                bloudbow_sat_positions.append(curr_bloudbow_sat_positions)
+                bloudbow_sat_lookats.append(curr_bloudbow_sat_lookats)
+                bloudbow_sat_names.append(curr_names)
+                
+            # out of the augmentes for:
+            bloudbow_sat_positions = np.array(bloudbow_sat_positions)
+            bloudbow_sat_lookats = np.array(bloudbow_sat_lookats)            
+            #---------------------------------------------------------------
+            #---------------------------------------------------------------
+            sat_positions = np.concatenate(
+                (sat_positions, bloudbow_sat_positions), axis=1)
+            SAT_LOOKATS = np.concatenate(
+                (SAT_LOOKATS, bloudbow_sat_lookats), axis=1)
+            names = bloudbow_sat_names
+            for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
+                    in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
+                
+                
                 assert curr_sat_positions.shape[1] == 3, "Problem in satellites positions."
                 assert curr_lookats.shape[1] == 3, "Problem in satellites pointing."
                 assert len(curr_names) == (cloudbow_additional_scan + SATS_NUMBER_SETUP), \
                     "Problem in satellites counting."
+            
+            #---------------------------------------------------------------
+            #---------------------------------------------------------------
+
+
+            
 
             up_list = np.array([0, 1, 0]) * np.ones_like(sat_positions)
             # up_list = np.array(len(sat_positions) * [0, 1, 0]).reshape(-1, 3)  # default up vector per camera.
