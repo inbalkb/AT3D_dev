@@ -1,4 +1,4 @@
-import cv2
+#import cv2
 import at3d
 import numpy as np
 import xarray as xr
@@ -29,7 +29,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    cloud_ids = [str(ind) for ind in np.arange(2000, 11000)]
+    cloud_ids = [str(ind) for ind in np.arange(2000, 5001)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -717,5 +717,5 @@ if __name__ == '__main__':
         }
     clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
         #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    # main(run_params, clouds_path)
-    simple_main(run_params, clouds_path)
+    main(run_params, clouds_path)
+    #simple_main(run_params, clouds_path)

@@ -20,6 +20,7 @@ import CloudCT_Imager
 import random
 import matplotlib
 matplotlib.use('TkAgg')
+import itertools
 
 # -------------------------------------------------------------------------------
 # ----------------------CONSTANTS------------------------------------------
@@ -518,6 +519,208 @@ def CreateVaryingStringOfPearls(SATS_NUMBER=10, ORBIT_ALTITUDE=500, move_nadir_x
     return sat_positions, near_nadir_view_indices, theta_max, theta_min
 
 
+#---------------------------------------------------
+#---------------------------------------------------
+#---------------------------------------------------
+def AddCloudBowScan2VaryingStringOfPearls(sat_positions=np.array([0, 0, 500]), lookat=np.array([0, 0, 0]), cloudbow_additional_scan=6,
+                                          cloudbow_range=[135, 155], theta_max=60, theta_min=-60, sun_zenith=180, sun_azimuth=0):
+    """
+    TODO
+
+    input:
+        ORBIT_ALTITUDE - in km  , float.
+        cloudbow_range - list of two elements - the cloudbow range in degrees.
+        cloudbow_additional_scan - integer - how manny samples to add in the cloudbow range (input param cloudbow_range).
+        theta_max, theta_min - floats - setup extrims off-nadir view angles in radian.
+
+    Output:
+        interpreted_sat_positions - np.array with the additional scan positions, shape (scanes,3).
+        sat_index - integer, it is the sat index that perform the cloudbow scan.
+        result_phis - list of the cloudbow angular samples 
+        not_cloudbow_startind - index of a satellite from which we add manual cloudbow samples 
+    """
+    assert cloudbow_range[0] < cloudbow_range[1], "bad order of the cloudbow_range input"
+
+    dtheta = 0.01
+    sat_thetas = np.arange(theta_min, theta_max, dtheta)
+    sat_thetas = sat_thetas[::-1]  # put sat1 to be the rigthest
+    theta_indexes = np.arange(len(sat_thetas))
+
+    r_ref = np.array([0, 0, r_earth])
+
+    sat_directions = lookat - sat_positions
+    sat_directions = -sat_directions / np.linalg.norm(sat_directions, axis=1, keepdims=True)
+
+    #### Compute sun_direction ####
+    SUN_THETA = np.deg2rad(sun_zenith)
+    SUN_PHI = np.deg2rad(sun_azimuth)
+    # calc sun direction from lookat to sun:
+    sun_x = np.sin(SUN_THETA) * np.cos(SUN_PHI)
+    sun_y = np.sin(SUN_THETA) * np.sin(SUN_PHI)
+    sun_z = np.cos(SUN_THETA)
+    sun_direction = np.array([sun_x, sun_y, sun_z])
+
+    # Phi - scattering angle, THETA angles WRT Earth center.
+    desired_phis = np.linspace(start=cloudbow_range[0], stop=cloudbow_range[1], num=cloudbow_additional_scan)        
+    # scattering angles of current setup:
+    curr_phis = np.rad2deg(np.arccos(np.dot(sun_direction, sat_directions.T)))
+    # find one sample of curr_phis that is within the cloudbow_range
+    cond = (curr_phis<cloudbow_range[1]) * (curr_phis>cloudbow_range[0])
+    desired_thetas = np.zeros_like(desired_phis)
+    # phis for angles relative to satellite and lookat.
+    # thetas for angles relative to satellite and center for earth. 
+
+    if np.any(cond):
+        # there is angle in the range, use it:
+        sat_index = np.argwhere(cond)[0].item()
+    else:
+        # there is no angle in the range, so find the closest:
+        sat_index = np.argmin(np.abs(curr_phis - cloudbow_range[0]))
+
+    found_sat =  sat_positions[sat_index, :]
+    found_sat_relative_to_EC =  r_ref + found_sat            
+    found_phi = curr_phis[sat_index]
+    print("found angles to check")
+    print(curr_phis)
+    print("satellite index {} is in the cloudbow range, with angle {}.".format(sat_index,found_phi))                     
+
+    X_config = (found_sat_relative_to_EC[2]) * np.sin(np.deg2rad(sat_thetas)) + found_sat_relative_to_EC[0]
+    Z_config = (found_sat_relative_to_EC[2]) * np.cos(np.deg2rad(sat_thetas)) - r_earth
+    Y_config = found_sat_relative_to_EC[1]*np.ones_like(X_config)
+    sample_sat_positions = np.vstack([X_config, Y_config, Z_config])
+    # sample_sat_positions.shape (3,#)
+
+    X_config_relative_to_EC = X_config
+    Y_config_relative_to_EC = Y_config
+    Z_config_relative_to_EC = Z_config + r_earth
+    sample_sat_positions_relative_to_EC = np.vstack([X_config_relative_to_EC,\
+                                                     Y_config_relative_to_EC,\
+                                                         Z_config_relative_to_EC])
+
+    sample_sat_direction = lookat[:, np.newaxis] - sample_sat_positions
+    sample_sat_direction = -sample_sat_direction / np.linalg.norm(sample_sat_direction, axis=0, keepdims=True)
+    sat_sun_angles = np.rad2deg(np.arccos(np.dot(sun_direction, sample_sat_direction)))
+    # filter relavent range:
+    cond = (sat_sun_angles<=cloudbow_range[1]) * (sat_sun_angles>=cloudbow_range[0])
+    filter_indexes = np.argwhere(cond)
+    assert len(filter_indexes) > 0, "In this geometry, there is now cloudbow scan"
+
+    filter_indexes = list(itertools.chain(*filter_indexes))
+    sat_sun_angles = sat_sun_angles[filter_indexes]
+    sample_sat_positions  = sample_sat_positions[:,filter_indexes]
+    sample_sat_positions_relative_to_EC = sample_sat_positions_relative_to_EC[:,filter_indexes]
+    sat_thetas = sat_thetas[filter_indexes]
+
+    """
+    When debug, use visualization:
+
+    value = 1 * np.ones_like(X_config) 
+    mlab.figure()
+
+    mlab.points3d(X_config_relative_to_EC,\
+    Y_config_relative_to_EC,\
+    Z_config_relative_to_EC, value, scale_factor=1,
+    color=(0, 1, 0))  
+
+
+
+    mlab.points3d(found_sat_relative_to_EC[0], found_sat_relative_to_EC[1], \
+    found_sat_relative_to_EC[2], 5, scale_factor=1,
+    color=(1, 0, 0)) 
+
+    at the end, visualize with:
+    X_config_relative_to_EC = test_X_config
+    Y_config_relative_to_EC = test_Y_config
+    Z_config_relative_to_EC = test_Z_config + r_earth
+    sample_sat_positions_relative_to_EC = np.vstack([X_config_relative_to_EC,\
+                                              Y_config_relative_to_EC,\
+                                              Z_config_relative_to_EC])
+
+    value = 2 * np.ones_like(sample_sat_positions_relative_to_EC[0,:]) 
+    mlab.points3d(sample_sat_positions_relative_to_EC[0,:],\
+                  sample_sat_positions_relative_to_EC[1,:],\
+                  sample_sat_positions_relative_to_EC[2,:], value, scale_factor=1,
+                              color=(0, 0, 1))     
+
+    """
+
+    #-------------------------------------------------
+    #-------------------------------------------------
+    #-------------------------------------------------
+    #-------------------------------------------------
+    #-------------------------------------------------
+    j1 = np.argmin(np.abs(desired_phis[0] - sat_sun_angles))
+    first_theta = sat_thetas[j1]
+    d = 0.5  # degrees # TODO - find this treshold as the maximum alowed
+    low_bound = first_theta - d
+    up_bound = first_theta + d  # degrees        
+    for i, phi in enumerate(desired_phis):
+        while (True):
+
+            j = np.argmin(np.abs(phi - sat_sun_angles))
+            candidat = sat_thetas[j]
+            if ((low_bound <= candidat) and (candidat <= up_bound)):
+                desired_thetas[i] = candidat
+                low_bound = candidat - d
+                up_bound = candidat + d  # degrees
+                sat_sun_angles[j] = -200  # give invalid value
+
+                test_X_config = (found_sat_relative_to_EC[2]) * np.sin(np.deg2rad(candidat)) + found_sat_relative_to_EC[0]
+                test_Z_config = (found_sat_relative_to_EC[2]) * np.cos(np.deg2rad(candidat)) - r_earth
+                test_Y_config = found_sat_relative_to_EC[1]*np.ones_like(test_X_config)
+
+                test_sat_positions = np.vstack([test_X_config, test_Y_config , test_Z_config]) # path.shape = (3,#sats) in km.
+                test_sat_direction = lookat[:,np.newaxis] - test_sat_positions
+                test_sat_direction = -test_sat_direction/np.linalg.norm(test_sat_direction, axis=0, keepdims=True)
+                test_phis = np.rad2deg(np.arccos(np.dot(sun_direction, test_sat_direction))) 
+                print("Found phi {}".format(test_phis))
+                break
+            else:
+                sat_sun_angles[j] = -200  # give invalid value
+
+
+    #-------------------------------------------------
+    #-------------------------------------------------
+    # result_phis should be close to desired_phis, check it here:
+    test_X_config = (found_sat_relative_to_EC[2]) * np.sin(np.deg2rad(desired_thetas)) + found_sat_relative_to_EC[0]
+    test_Z_config = (found_sat_relative_to_EC[2]) * np.cos(np.deg2rad(desired_thetas)) - r_earth
+    test_Y_config = found_sat_relative_to_EC[1]*np.ones_like(test_X_config)
+
+    test_sat_positions = np.vstack([test_X_config, test_Y_config, test_Z_config])  # path.shape = (3,#sats) in km.
+    test_sat_direction = lookat[:, np.newaxis] - test_sat_positions
+    test_sat_direction = -test_sat_direction / np.linalg.norm(test_sat_direction, axis=0, keepdims=True)
+    result_phis = np.rad2deg(np.arccos(np.dot(sun_direction, test_sat_direction)))  
+
+    desired_thetas = np.deg2rad(desired_thetas)  # convert to radian
+
+    # if we can't get all the desired cloudbow angles, just continue scanning with the same dtheta between scans:
+    dtheta = np.diff(desired_thetas)
+    new_theta_inds = np.argwhere(np.abs(dtheta) < 0.5e-3)
+    not_cloudbow_startind = None
+    if new_theta_inds.size != 0 and np.array_equal(new_theta_inds.ravel(), np.arange(new_theta_inds[0], len(dtheta))):
+        not_cloudbow_startind = int(np.argwhere(np.abs(dtheta) < 0.5e-3)[0])
+        rest_of_dthetas = dtheta[not_cloudbow_startind - 1]
+        num_of_new_thetas = len(desired_thetas) - (not_cloudbow_startind + 1)
+        desired_thetas[not_cloudbow_startind + 1:] = (desired_thetas[not_cloudbow_startind] +
+                                                      np.arange(1, num_of_new_thetas + 1) * rest_of_dthetas)
+    elif (new_theta_inds.size != 0) or (new_theta_inds.size == 0 and np.any(np.abs(desired_phis - result_phis) >= 2)):
+        raise Exception("Something went wrong in the cloudbow scanning calculations.")
+
+    # result_phis should be close to desired_phis, check it here:
+    test_X_config = (found_sat_relative_to_EC[2]) * np.sin((desired_thetas)) + found_sat_relative_to_EC[0]
+    test_Z_config = (found_sat_relative_to_EC[2]) * np.cos((desired_thetas)) - r_earth
+    test_Y_config = found_sat_relative_to_EC[1]*np.ones_like(test_X_config)
+
+    test_sat_positions = np.vstack([test_X_config, test_Y_config, test_Z_config])  # path.shape = (3,#sats) in km.
+    test_sat_direction = lookat[:, np.newaxis] - test_sat_positions
+    test_sat_direction = -test_sat_direction / np.linalg.norm(test_sat_direction, axis=0, keepdims=True)
+    result_phis = np.rad2deg(np.arccos(np.dot(sun_direction, test_sat_direction)))  
+
+    # interpreted_sat_positions
+    interpreted_sat_positions = test_sat_positions.T 
+    return interpreted_sat_positions, sat_index, result_phis, not_cloudbow_startind
+
+
 def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), cloudbow_additional_scan=6,
                                cloudbow_range=[135, 155], theta_max=60, theta_min=-60, sun_zenith=180, sun_azimuth=0,
                                move_nadir_x=0, move_nadir_y=0):
@@ -530,6 +733,10 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
         cloudbow_additional_scan - integer - how manny samples to add in the cloudbow range (input param cloudbow_range).
         theta_max, theta_min - floats - setup extrims off-nadir view angles in radian.
 
+    Output:
+        interpreted_sat_positions - np.array with the additional scan positions, shape (scanes,3).
+        result_phis - list of the cloudbow angular samples 
+        not_cloudbow_startind - index of a satellite from which we add manual cloudbow samples 
     """
     assert cloudbow_range[0] < cloudbow_range[1], "bad order of the cloudbow_range input"
 
@@ -611,9 +818,10 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
 
     # if we can't get all the desired cloudbow angles, just continue scanning with the same dtheta between scans:
     dtheta = np.diff(desired_thetas)
-    new_theta_inds = np.argwhere(np.abs(dtheta) < 1e-5)
+    new_theta_inds = np.argwhere(np.abs(dtheta) < 0.5e-3)
+    not_cloudbow_startind = None    
     if new_theta_inds.size != 0 and np.array_equal(new_theta_inds.ravel(), np.arange(new_theta_inds[0], len(dtheta))):
-        not_cloudbow_startind = int(np.argwhere(np.abs(dtheta) < 1e-4)[0])
+        not_cloudbow_startind = int(np.argwhere(np.abs(dtheta) < 0.5e-3)[0])
         rest_of_dthetas = dtheta[not_cloudbow_startind - 1]
         num_of_new_thetas = len(desired_thetas) - (not_cloudbow_startind + 1)
         desired_thetas[not_cloudbow_startind + 1:] = (desired_thetas[not_cloudbow_startind] +
@@ -650,7 +858,7 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
 
     # Arange N phis in range 135-165
     # for each phi --> theta --> x,y,z sat
-    return interpreted_sat_positions.T
+    return interpreted_sat_positions.T, result_phis, not_cloudbow_startind
 
 
 # ---------------------------------------------------
