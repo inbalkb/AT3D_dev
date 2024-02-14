@@ -376,8 +376,9 @@ def run_simulation(args):
 
         names = [["aug" + str(aug_ind) + "_sat" + str(i + 1) for i in range(len(sat_position_vec))] for
                  aug_ind, sat_position_vec in enumerate(sat_positions)]
-        
-        
+
+        not_cloudbow_startinds = -999
+        cloudbow_sample_angles = -999
         if cloudbow_additional_scan > 0:
             print(f"CloudCT has {cloudbow_additional_scan} samples in the cloudbow range.")
 
@@ -385,10 +386,10 @@ def run_simulation(args):
             #---------------------------------------------------------------
             #---------------------------------------------------------------
             # ------VADIM ADDED the cloudbow scan --------------------------
-            bloudbow_sat_positions = []
-            bloudbow_sat_lookats = []
-            bloudbow_sat_names = []
-        
+            cloudbow_sat_positions = []
+            cloudbow_sat_lookats = []
+            not_cloudbow_startinds = []
+            cloudbow_sample_angles = []
         
             for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
                 in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
@@ -406,7 +407,7 @@ def run_simulation(args):
                 cloudbow_range = run_params['cloudbow_range']
                 flight_direction = [-1, 0, 0]
         
-                interpreted_sat_positions, cloudbow_sample_sat_index, cloudbow_sample_angles, not_cloudbow_startind = \
+                interpreted_sat_positions, cloudbow_sample_sat_index, curr_cloudbow_sample_angles, not_cloudbow_startind = \
                     AddCloudBowScan2VaryingStringOfPearls(sat_positions=curr_sat_positions,\
                                                           lookat=cloudbow_lookat,\
                                                           cloudbow_additional_scan=cloudbow_additional_scan,\
@@ -415,30 +416,33 @@ def run_simulation(args):
                                                           theta_min=curr_theta_min,\
                                                           sun_zenith=sun_zenith, sun_azimuth=sun_azimuth)
         
-                curr_bloudbow_sat_lookats   = np.tile(cloudbow_lookat,[(cloudbow_additional_scan),1])
-                curr_bloudbow_sat_positions = interpreted_sat_positions
+                curr_cloudbow_sat_lookats = np.tile(cloudbow_lookat, [(cloudbow_additional_scan), 1])
+                curr_cloudbow_sat_positions = interpreted_sat_positions
         
                 print(20*"-")
                 print(20*"-")
                
                 for i in range(cloudbow_additional_scan):
-                    curr_names.append(curr_names[cloudbow_sample_sat_index]+ "_s{}_{}".format(i+1,int(cloudbow_sample_angles[i])))
+                    curr_names.append(curr_names[cloudbow_sample_sat_index] + "_s{}".format(i+1))
+                curr_names[cloudbow_sample_sat_index] = curr_names[cloudbow_sample_sat_index] + "_s0"
                 
                 
-                bloudbow_sat_positions.append(curr_bloudbow_sat_positions)
-                bloudbow_sat_lookats.append(curr_bloudbow_sat_lookats)
-                bloudbow_sat_names.append(curr_names)
+                cloudbow_sat_positions.append(curr_cloudbow_sat_positions)
+                cloudbow_sat_lookats.append(curr_cloudbow_sat_lookats)
+                not_cloudbow_startinds.append(not_cloudbow_startind)
+                cloudbow_sample_angles.append(curr_cloudbow_sample_angles)
                 
             # out of the augmentes for:
-            bloudbow_sat_positions = np.array(bloudbow_sat_positions)
-            bloudbow_sat_lookats = np.array(bloudbow_sat_lookats)            
+            cloudbow_sat_positions = np.array(cloudbow_sat_positions)
+            cloudbow_sat_lookats = np.array(cloudbow_sat_lookats)
+            not_cloudbow_startinds = np.array(not_cloudbow_startinds)
+            cloudbow_sample_angles = np.array(cloudbow_sample_angles)
             #---------------------------------------------------------------
             #---------------------------------------------------------------
             sat_positions = np.concatenate(
-                (sat_positions, bloudbow_sat_positions), axis=1)
+                (sat_positions, cloudbow_sat_positions), axis=1)
             SAT_LOOKATS = np.concatenate(
-                (SAT_LOOKATS, bloudbow_sat_lookats), axis=1)
-            names = bloudbow_sat_names
+                (SAT_LOOKATS, cloudbow_sat_lookats), axis=1)
             for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
                     in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
                 
@@ -576,7 +580,9 @@ def run_simulation(args):
                  'ray_phi': ray_phi,
                  'cameras_pos': sat_positions,
                  'cameras_P': projection_matrices,
-                 'grid': grid
+                 'grid': grid,
+                 'not_cloudbow_startinds': not_cloudbow_startinds,
+                 'cloudbow_sample_angles': cloudbow_sample_angles
                  }
 
         if run_params['IS_SUN_WIND_CONST'] == 1:
