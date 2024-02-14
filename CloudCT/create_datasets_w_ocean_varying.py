@@ -406,7 +406,7 @@ def run_simulation(args):
                 cloudbow_range = run_params['cloudbow_range']
                 flight_direction = [-1, 0, 0]
         
-                interpreted_sat_positions, sat_index, cloudbow_sample_angles, not_cloudbow_startind = \
+                interpreted_sat_positions, cloudbow_sample_sat_index, cloudbow_sample_angles, not_cloudbow_startind = \
                     AddCloudBowScan2VaryingStringOfPearls(sat_positions=curr_sat_positions,\
                                                           lookat=cloudbow_lookat,\
                                                           cloudbow_additional_scan=cloudbow_additional_scan,\
@@ -422,7 +422,7 @@ def run_simulation(args):
                 print(20*"-")
                
                 for i in range(cloudbow_additional_scan):
-                    curr_names.append(curr_names[sat_index]+ "_s{}_{}".format(i+1,int(cloudbow_sample_angles[i])))
+                    curr_names.append(curr_names[cloudbow_sample_sat_index]+ "_s{}_{}".format(i+1,int(cloudbow_sample_angles[i])))
                 
                 
                 bloudbow_sat_positions.append(curr_bloudbow_sat_positions)

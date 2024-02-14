@@ -391,7 +391,10 @@ def run_simulation(args):
                 # if the lookats are different, just calculate the mean lookat.
                 cloudbow_lookat = np.mean(SAT_LOOKATS, axis=0)
 
-            cloud_bow_sat_positions = \
+            """
+            INBAL TODO - monitor cloudbow_sample_angles, not_cloudbow_startind
+            """
+            cloud_bow_sat_positions, cloudbow_sample_angles, not_cloudbow_startind = \
                 StringOfPearlsCloudBowScan(Rsat,
                                              cloudbow_lookat,
                                              cloudbow_additional_scan,
