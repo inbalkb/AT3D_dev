@@ -531,7 +531,9 @@ def run_simulation(args):
                  'ray_phi': np.array(ray_phi_list),
                  'cameras_pos': sat_positions,
                  'cameras_P': np.array(projection_matrices),
-                 'grid': grid
+                 'grid': grid,
+                 'not_cloudbow_startind': not_cloudbow_startind,
+                 'cloudbow_sample_angles': cloudbow_sample_angles
                  }
 
         if run_params['IS_SUN_WIND_CONST'] == 1:
