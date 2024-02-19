@@ -61,6 +61,22 @@ def run_simulation(args):
 
     if run_params['IF_AIRMSPI']:
         NotImplementedError()
+    else:
+        if run_params['IS_SUN_CONST'] == 1 and run_params['IS_WIND_CONST'] == 1:
+            path_stamp = 'const_env_params'
+        elif run_params['IS_SUN_CONST'] == 0 and run_params['IS_WIND_CONST'] == 0:
+            path_stamp = 'varying_env_params'
+        elif run_params['IS_SUN_CONST'] == 1 and run_params['IS_WIND_CONST'] == 0:
+            path_stamp = 'varying_wind_const_sun'
+        elif run_params['IS_SUN_CONST'] == 0 and run_params['IS_WIND_CONST'] == 1:
+            path_stamp = 'varying_sun_const_wind'
+        filename = os.path.join(run_params['images_path_for_nn'], path_stamp,
+                                'cloud_results_' + cloud_name + '.pkl')
+
+        if os.path.exists(filename):
+            print(f'skipping cloud in {filename}')
+            return
+
     if run_params['IF_AIRMSPI']:
         Inbals_projections_path = '/wdata/inbalkom/Data/AirMSPI/Projections/train'
         # output_base_path = run_params['satellites_images_path']
@@ -156,34 +172,27 @@ def run_simulation(args):
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
     # surface = at3d.surface.lambertian(0.05)
-    if run_params['IS_SUN_WIND_CONST'] == 1:
+    if run_params['IS_SUN_CONST']:
+        sun_azimuth = run_params['const_sun_azimuth']
+        sun_zenith = run_params['const_sun_zenith']
+        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+    else:
+        sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
+        print('set varying sun_azimuth as {}deg and varying sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+    if run_params['IS_WIND_CONST']:
         surface_wind_speed = run_params['surface_wind_speed_mean']
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
                                             ground_temperature=run_params['temperature'])
         print('added wave_fresnel surface with const wind speed of {} m/s'.format(surface_wind_speed))
-        sun_azimuth = run_params['const_sun_azimuth']
-        sun_zenith = run_params['const_sun_zenith']
-        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
-    elif run_params['IS_SUN_WIND_CONST']==0:
+    else:
         surface_wind_speed = generate_random_surface_wind_speed(
             wind_mean=run_params['surface_wind_speed_mean'], wind_std=run_params['surface_wind_speed_std'])
         surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
                                             surface_wind_speed=surface_wind_speed,
                                             ground_temperature=run_params['temperature'])
         print('added wave_fresnel surface with varying wind speed of {} m/s'.format(surface_wind_speed))
-        sun_azimuth, sun_zenith = generate_random_sun_angles_for_lat(run_params['Lat_for_sun_angles'])
-        print('set varying sun_azimuth as {}deg and varying sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
-    elif run_params['IS_SUN_WIND_CONST']==2:  # meaning: only wind is varying, sun is not.
-        surface_wind_speed = generate_random_surface_wind_speed(
-            wind_mean=run_params['surface_wind_speed_mean'], wind_std=run_params['surface_wind_speed_std'])
-        surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
-                                            surface_wind_speed=surface_wind_speed,
-                                            ground_temperature=run_params['temperature'])
-        print('added wave_fresnel surface with varying wind speed of {} m/s'.format(surface_wind_speed))
-        sun_azimuth = run_params['const_sun_azimuth']
-        sun_zenith = run_params['const_sun_zenith']
-        print('set const sun_azimuth as {}deg and const sun_zenith as {}deg'.format(sun_azimuth, sun_zenith))
+
     for wavelength in mean_wavelengths:
         medium = {
             'cloud': optical_properties[wavelength],
@@ -597,21 +606,15 @@ def run_simulation(args):
                  'cloudbow_sample_angles': cloudbow_sample_angles
                  }
 
-        if run_params['IS_SUN_WIND_CONST'] == 1:
-            path_stamp = 'const_env_params'
-        elif run_params['IS_SUN_WIND_CONST'] == 0:
-            path_stamp = 'varying_env_params'
-        elif run_params['IS_SUN_WIND_CONST'] == 2:
-            path_stamp = 'varying_wind_const_sun'
-        filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
-                                'cloud_results_' + cloud_name + '.pkl')
-        print(f'saving cloud in {filename}')
+
+
 
         if not os.path.exists(os.path.join(run_params['images_path_for_nn'], path_stamp)):
             # Create a new directory because it does not exist
             safe_mkdirs(os.path.join(run_params['images_path_for_nn'], path_stamp))
             print("The directory for saving cloud results for option {} was created.".format(path_stamp))
 
+        print(f'saving cloud in {filename}')
         with open(filename, 'wb') as outfile:
             pickle.dump(cloud, outfile, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -733,7 +736,8 @@ if __name__ == '__main__':
                   'max_simultaneous_simulations': 5,
                   'surface_wind_speed_mean': 6.67,  # m/s
                   'surface_wind_speed_std': 1.5,  # m/s
-                  'IS_SUN_WIND_CONST': 1,
+                  'IS_SUN_CONST': 1,
+                  'IS_WIND_CONST': 1,
                   'num_sat_locs_augmentations': 5,
                   'cancel_noise': False
                   }
@@ -751,7 +755,8 @@ if __name__ == '__main__':
         run_params['wavelengths'] = [[0.620, 0.670]]
         run_params['radiance_thresholds'] = run_params['SATS_NUMBER']*[0.0255]
         run_params['images_path_for_nn'] = \
-            "/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/"
+            '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/'
+            #"/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/"
             #'/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/'
         run_params['Lat_for_sun_angles'] = -10  # According to what Vadim sent me
         run_params['Rsat'] = 500  # km
@@ -782,7 +787,8 @@ if __name__ == '__main__':
             'max_bias': 5,
             'max_gain': 5
         }
-    clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+        # "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
     #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #main(run_params, clouds_path)
     simple_main(run_params, clouds_path)
