@@ -29,7 +29,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    # cloud_ids = [str(ind) for ind in np.arange(4000)]
+    cloud_ids = [str(ind) for ind in np.arange(0, 2000)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -55,6 +55,7 @@ def simple_main(run_params, clouds_path):
     print('done')
 
 def run_simulation(args):
+        
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
 
@@ -138,7 +139,7 @@ def run_simulation(args):
         # mie_mono_table.to_netcdf(mono_path)
 
 
-
+        
     optical_property_generator = at3d.medium.OpticalPropertyGenerator(
         'cloud',
         mie_mono_tables,
@@ -407,7 +408,9 @@ def run_simulation(args):
                 cloudbow_range = run_params['cloudbow_range']
                 flight_direction = [-1, 0, 0]
         
-                interpreted_sat_positions, cloudbow_sample_sat_index, curr_cloudbow_sample_angles, not_cloudbow_startind = \
+                try:
+                    
+                    interpreted_sat_positions, cloudbow_sample_sat_index, curr_cloudbow_sample_angles, not_cloudbow_startind = \
                     AddCloudBowScan2VaryingStringOfPearls(sat_positions=curr_sat_positions,\
                                                           lookat=cloudbow_lookat,\
                                                           cloudbow_additional_scan=cloudbow_additional_scan,\
@@ -416,33 +419,42 @@ def run_simulation(args):
                                                           theta_min=curr_theta_min,\
                                                           sun_zenith=sun_zenith, sun_azimuth=sun_azimuth)
         
-                curr_cloudbow_sat_lookats = np.tile(cloudbow_lookat, [(cloudbow_additional_scan), 1])
-                curr_cloudbow_sat_positions = interpreted_sat_positions
+                except Exception as e:
+                    print(f'FAILED TO SIMULATE {cloud_name}, {e}')
+                    return
         
-                print(20*"-")
-                print(20*"-")
-               
-                for i in range(cloudbow_additional_scan):
-                    curr_names.append(curr_names[cloudbow_sample_sat_index] + "_s{}".format(i+1))
-                curr_names[cloudbow_sample_sat_index] = curr_names[cloudbow_sample_sat_index] + "_s0"
-                
-                
-                cloudbow_sat_positions.append(curr_cloudbow_sat_positions)
-                cloudbow_sat_lookats.append(curr_cloudbow_sat_lookats)
-                not_cloudbow_startinds.append(not_cloudbow_startind)
-                cloudbow_sample_angles.append(curr_cloudbow_sample_angles)
+                if interpreted_sat_positions is not None:
+                    curr_cloudbow_sat_lookats = np.tile(cloudbow_lookat, [(cloudbow_additional_scan), 1])
+                    curr_cloudbow_sat_positions = interpreted_sat_positions
+            
+                    print(20*"-")
+                    print(20*"-")
+                   
+                    for i in range(cloudbow_additional_scan):
+                        curr_names.append(curr_names[cloudbow_sample_sat_index] + "_s{}".format(i+1))
+                    curr_names[cloudbow_sample_sat_index] = curr_names[cloudbow_sample_sat_index] + "_s0"
+                    
+                    
+                    cloudbow_sat_positions.append(curr_cloudbow_sat_positions)
+                    cloudbow_sat_lookats.append(curr_cloudbow_sat_lookats)
+                    not_cloudbow_startinds.append(not_cloudbow_startind)
+                    cloudbow_sample_angles.append(curr_cloudbow_sample_angles)
                 
             # out of the augmentes for:
-            cloudbow_sat_positions = np.array(cloudbow_sat_positions)
-            cloudbow_sat_lookats = np.array(cloudbow_sat_lookats)
-            not_cloudbow_startinds = np.array(not_cloudbow_startinds)
-            cloudbow_sample_angles = np.array(cloudbow_sample_angles)
-            #---------------------------------------------------------------
-            #---------------------------------------------------------------
-            sat_positions = np.concatenate(
-                (sat_positions, cloudbow_sat_positions), axis=1)
-            SAT_LOOKATS = np.concatenate(
-                (SAT_LOOKATS, cloudbow_sat_lookats), axis=1)
+            if interpreted_sat_positions is not None:
+                cloudbow_sat_positions = np.array(cloudbow_sat_positions)
+                cloudbow_sat_lookats = np.array(cloudbow_sat_lookats)
+                not_cloudbow_startinds = np.array(not_cloudbow_startinds)
+                cloudbow_sample_angles = np.array(cloudbow_sample_angles)
+                #---------------------------------------------------------------
+                #---------------------------------------------------------------
+                sat_positions = np.concatenate(
+                    (sat_positions, cloudbow_sat_positions), axis=1)
+                SAT_LOOKATS = np.concatenate(
+                    (SAT_LOOKATS, cloudbow_sat_lookats), axis=1)
+            else:
+                cloudbow_additional_scan = 0
+                
             for curr_sat_positions, curr_theta_max, curr_theta_min, curr_lookats, curr_names \
                     in zip(sat_positions, theta_max, theta_min, SAT_LOOKATS, names):
                 
@@ -739,12 +751,13 @@ if __name__ == '__main__':
         run_params['wavelengths'] = [[0.620, 0.670]]
         run_params['radiance_thresholds'] = run_params['SATS_NUMBER']*[0.0255]
         run_params['images_path_for_nn'] = \
-            '/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/'
+            "/wdata_visl/inbalkom/NN_Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/CloudCT_SIMULATIONS_AT3D/"
+            #'/wdata_visl/inbalkom/NN_Data/BOMEX_256x256x100_5000CCN_50m_micro_256/CloudCT_SIMULATIONS_AT3D/varying_sats_loc/'
         run_params['Lat_for_sun_angles'] = -10  # According to what Vadim sent me
         run_params['Rsat'] = 500  # km
         run_params['GSD'] = 0.02  # in km, it is the ground spatial resolution.
-        run_params['const_sun_azimuth'] = 45.93
-        run_params['const_sun_zenith'] = 160.64
+        run_params['const_sun_azimuth'] =  83.014454 #45.93
+        run_params['const_sun_zenith'] = 106.25181 #160.64
         run_params['cloudbow_additional_scan'] = 10
         run_params['cloudbow_range'] = [135,150]  # cloudbow_range - list of two elements - the cloudbow range in degrees.
         run_params['tune_scalar'] = 1.5
@@ -769,6 +782,7 @@ if __name__ == '__main__':
             'max_bias': 5,
             'max_gain': 5
         }
-    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    # main(run_params, clouds_path)
+    clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
+    #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+    #main(run_params, clouds_path)
     simple_main(run_params, clouds_path)

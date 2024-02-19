@@ -29,7 +29,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    cloud_ids = [str(ind) for ind in np.arange(2000, 5001)]
+    cloud_ids = [str(ind) for ind in np.arange(8001, 11908)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -58,6 +58,20 @@ def run_simulation(args):
     run_params, (cloud_name, cloud_params) = args
     print(f"Simulation of cloud {cloud_name} is running.")
 
+    
+    if not run_params['IF_AIRMSPI']:
+        if run_params['IS_SUN_WIND_CONST'] == 1:
+            path_stamp = 'const_env_params'
+        elif run_params['IS_SUN_WIND_CONST'] == 0:
+            path_stamp = 'varying_env_params'
+        elif run_params['IS_SUN_WIND_CONST'] == 2:
+            path_stamp = 'varying_wind_const_sun'
+        filename = os.path.join(run_params['images_path_for_nn'],path_stamp,
+                                'cloud_results_' + cloud_name + '.pkl')
+        print(f'skipping cloud in {filename}')
+        if os.path.exists(filename):
+            return    
+    
     if run_params['IF_AIRMSPI']:
         Inbals_projections_path = '/wdata/inbalkom/Data/AirMSPI/Projections/train'
         # output_base_path = run_params['satellites_images_path']
@@ -394,17 +408,23 @@ def run_simulation(args):
             """
             INBAL TODO - monitor cloudbow_sample_angles, not_cloudbow_startind
             """
-            cloud_bow_sat_positions, cloudbow_sample_angles, not_cloudbow_startind = \
-                StringOfPearlsCloudBowScan(Rsat,
-                                             cloudbow_lookat,
-                                             cloudbow_additional_scan,
-                                             run_params['cloudbow_range'],
-                                             theta_max, theta_min,
-                                             sun_zenith, sun_azimuth,
-                                             move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
-                                             move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
-                                             )
+            try:
+                
+                cloud_bow_sat_positions, cloudbow_sample_angles, not_cloudbow_startind = \
+                    StringOfPearlsCloudBowScan(Rsat,
+                                                 cloudbow_lookat,
+                                                 cloudbow_additional_scan,
+                                                 run_params['cloudbow_range'],
+                                                 theta_max, theta_min,
+                                                 sun_zenith, sun_azimuth,
+                                                 move_nadir_x=CENTER_OF_MEDIUM_BOTTOM[0],
+                                                 move_nadir_y=CENTER_OF_MEDIUM_BOTTOM[1]
+                                                 )
 
+            except Exception as e:
+                print(f'FAILED TO SIMULATE {cloud_name}, {e}')
+                return
+            
             # what is the scan_imager_index?
             distances = sat_positions - cloud_bow_sat_positions[0]
             distances = np.linalg.norm(distances, axis=1)

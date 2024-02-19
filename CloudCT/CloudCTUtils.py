@@ -603,7 +603,12 @@ def AddCloudBowScan2VaryingStringOfPearls(sat_positions=np.array([0, 0, 500]), l
     # filter relavent range:
     cond = (sat_sun_angles<=cloudbow_range[1]) * (sat_sun_angles>=cloudbow_range[0])
     filter_indexes = np.argwhere(cond)
-    assert len(filter_indexes) > 0, "In this geometry, there is now cloudbow scan"
+    
+    #if len(filter_indexes) == 0:
+        #print("In this geometry, there is no cloudbow scan")
+        #return None, None, None, None
+        
+    assert len(filter_indexes) > 0, "In this geometry, there is no cloudbow scan"
 
     filter_indexes = list(itertools.chain(*filter_indexes))
     sat_sun_angles = sat_sun_angles[filter_indexes]
@@ -771,6 +776,12 @@ def StringOfPearlsCloudBowScan(orbit_altitude=500, lookat=np.array([0, 0, 0]), c
     # Phi - scattering angle
     sat_sun_angles = np.rad2deg(np.arccos(np.dot(sun_direction, sat_direction)))
     sat_thetas = np.rad2deg(sat_thetas)  # convert to degrees
+    
+    # filter relavent range:
+    cond = (sat_sun_angles<=cloudbow_range[1]) * (sat_sun_angles>=cloudbow_range[0])
+    filter_indexes = np.argwhere(cond)     
+    assert len(filter_indexes) > 0, "In this geometry, there is no cloudbow scan"
+    
     # interpreted_thetas based on desired_phis
     desired_phis = np.linspace(start=cloudbow_range[0], stop=cloudbow_range[1], num=cloudbow_additional_scan)
     desired_thetas = np.zeros_like(desired_phis)
