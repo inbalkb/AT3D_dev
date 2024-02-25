@@ -18,6 +18,7 @@ from mpl_toolkits.axes_grid1 import AxesGrid, make_axes_locatable
 from multiprocessing import Pool
 from itertools import repeat
 from CloudCTUtils import *
+from CloudCT_NoiseUtils import *
 import matplotlib
 matplotlib.use('TkAgg')
 
@@ -761,8 +762,8 @@ if __name__ == '__main__':
         run_params['Lat_for_sun_angles'] = -10  # According to what Vadim sent me
         run_params['Rsat'] = 500  # km
         run_params['GSD'] = 0.02  # in km, it is the ground spatial resolution.
-        run_params['const_sun_azimuth'] =  83.014454 #45.93
-        run_params['const_sun_zenith'] = 106.25181 #160.64
+        run_params['const_sun_azimuth'] = 45.93
+        run_params['const_sun_zenith'] = 160.64
         run_params['cloudbow_additional_scan'] = 10
         run_params['cloudbow_range'] = [135,150]  # cloudbow_range - list of two elements - the cloudbow range in degrees.
         run_params['tune_scalar'] = 1.5

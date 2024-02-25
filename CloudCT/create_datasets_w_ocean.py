@@ -1,4 +1,4 @@
-#import cv2
+import cv2
 import at3d
 import numpy as np
 import xarray as xr
@@ -18,6 +18,7 @@ from mpl_toolkits.axes_grid1 import AxesGrid, make_axes_locatable
 from multiprocessing import Pool
 from itertools import repeat
 from CloudCTUtils import *
+from CloudCT_NoiseUtils import *
 import matplotlib
 matplotlib.use('TkAgg')
 
@@ -90,6 +91,7 @@ def run_simulation(args):
             if os.path.exists(filename):
                 num_exist += 1
         if num_exist == n_files:
+            print(f'skipping cloud in {cloud_name}')
             return
 
     if run_params['IF_NEW_TXT']:
@@ -239,7 +241,7 @@ def run_simulation(args):
             with open(path, 'rb') as f:
                 projections = pickle.load(f)
 
-            sensor_dict = process_Rois_projections(projections, mean_x.data, mean_y.data, stokes=run_params['stokes'],
+            sensor_dict, names = process_Rois_projections(projections, mean_x.data, mean_y.data, stokes=run_params['stokes'],
                                                    wavelengths=mean_wavelengths, fill_ray_variables=True)
 
             print('Done defining AIRMSPI''s {} sensors'.format(path_stamp))
@@ -248,55 +250,58 @@ def run_simulation(args):
             # get the measurements
             sensor_dict.get_measurements(solvers_dict, n_jobs=run_params['n_jobs'], verbose=True)
             print('Done getting AIRMSPI''s {} measurments'.format(path_stamp))
+
+            # add AirMSPI noise to rendered images:
+            sensor_dict, _ = add_airmspi_noise(sensor_dict, run_params['stokes'], names)
+
             # Perform some cloud masking using a single fixed threshold based on the observation that
             # everywhere else will be very dark.
             sensor_list = []
             images = []
             ray_mu_list = []
             ray_phi_list = []
-            for sensor_ind, (instrument, sensor) in enumerate(sensor_dict.items()):
-                copied = sensor['sensor_list'][0].copy(deep=True)
-
-                # add ray_mu and ray_phi to lists for future scattering plane calculations
-                ray_mu_list.append(copied.ray_mu.data)
-                ray_phi_list.append(copied.ray_phi.data)
-
-                # create 'sensor_list' for space carving
-                ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
-                ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
-                copied['weights'] = ('nrays', copied.I.data)
-                copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
-                sensor_list.append(copied)
-
-                # add image to 'images' in order to save in file
+            for instrument_ind, (instrument, sensor_group) in enumerate(sensor_dict.items()):
                 sensor_images = sensor_dict.get_images(instrument)
-                if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
-                    curr_image = np.array([sensor_images[0].I.data.T])
-                elif run_params['stokes'] == ['I', 'Q']:
-                    curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U']:
-                    curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T,
-                                           sensor_images[0].U.data.T])
-                elif run_params['stokes'] == ['I', 'Q', 'U', 'V']:
-                    curr_image = np.array([sensor_images[0].I.data.T, sensor_images[0].Q.data.T,
-                                           sensor_images[0].U.data.T, sensor_images[0].V.data.T])
-                images.append(curr_image)
+                sensor_group_list = sensor_dict[instrument]['sensor_list']
+                assert len(names) == len(sensor_group_list), "len(names) does not match len(sensor_group_list)"
+                for sensor_ind, sensor in enumerate(sensor_group_list):
+                    if (run_params['stokes'] == ['I']) or (run_params['stokes'] == 'I'):
+                        curr_image = np.array([sensor_images[sensor_ind].I.data])
+                    else:
+                        curr_image = np.stack(
+                            [sensor_images[sensor_ind][pol_channel].data for pol_channel in run_params['stokes']])
+                    images.append(curr_image)
+                    copied = sensor.copy(deep=True)
+
+                    # add ray_mu and ray_phi to lists for future scattering plane calculations
+                    ray_mu_list.append(copied.ray_mu.data)
+                    ray_phi_list.append(copied.ray_phi.data)
+
+                    # create 'sensor_list' for space carving
+                    ray_mask_pixel = np.zeros(copied.npixels.size, dtype=int)
+                    ray_mask_pixel[np.where(copied.I.data > run_params['radiance_thresholds'][sensor_ind])] = 1
+                    copied['weights'] = ('nrays', copied.I.data)
+                    copied['cloud_mask'] = ('nrays', ray_mask_pixel[copied.pixel_index.data])
+                    sensor_list.append(copied)
 
             print('getting AIRMSPI''s {} space carving'.format(path_stamp))
             space_carver = at3d.space_carve.SpaceCarver(rte_grid, bcflag=3)
             agreement = 0.8
             carved_volume = space_carver.carve(sensor_list, agreement=(0.0, agreement), linear_mode=False)
+            mask4file = carved_volume.mask.data[:, :, :cloud_scatterer.z.data.size]
 
             npad = ((1, 1), (1, 1), (1, 1))
-            mask_data_padded = np.pad(carved_volume.mask.copy(),
+            mask_data_padded = np.pad(mask4file.copy(),
                                       pad_width=npad, mode='constant', constant_values=0)
+
+            mask4file = mask4file > 0  # convert from int to bool
 
             struct = ndimage.generate_binary_structure(3, 2)
             mask_morph = ndimage.binary_closing(mask_data_padded, struct)
             mask_morph = mask_morph[1:-1, 1:-1, 1:-1]
 
             # remove cloud mask values at outer boundaries to prevent interaction with open boundary conditions.
-            carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
+            # carved_volume.mask[0] = carved_volume.mask[-1] = carved_volume.mask[:, 0] = carved_volume.mask[:, -1] = 0.0
 
             if 0:
                 plot_cloud_images(images)
@@ -304,7 +309,7 @@ def run_simulation(args):
 
 
             cloud = {'images': np.array(images),
-                     'mask': carved_volume.mask,
+                     'mask': mask4file,
                      'mask_morph': mask_morph,
                      'cloud_path': cloud_params['path'],
                      'sun_zenith': sun_zenith,
@@ -567,6 +572,7 @@ def run_simulation(args):
 def process_Rois_projections(projections, mean_x, mean_y, stokes, wavelengths, fill_ray_variables=True):
     sensor_roi_projections = at3d.containers.SensorsDict()
     image_shape = np.array([350,350])
+    proj_names = []
     for wavelength in wavelengths:
         for i, (key, projection) in enumerate(projections.items()):
             mask = projection['mask']
@@ -619,9 +625,11 @@ def process_Rois_projections(projections, mean_x, mean_y, stokes, wavelengths, f
                 x, y, z, mu, phi, stokes, wavelength, fill_ray_variables=fill_ray_variables)
 
             sensor['image_shape'] = xr.DataArray(image_shape, coords={'image_dims': ['nx', 'ny']}, dims='image_dims')
-            sensor_roi_projections.add_sensor(str(int(wavelength*1000))+key, sensor)
+            instrument_name = str(int(wavelength*1000))
+            sensor_roi_projections.add_sensor(instrument_name, sensor)
+            proj_names.append(key)
 
-    return sensor_roi_projections
+    return sensor_roi_projections, proj_names
 
 
 def plot_cloud_images(images):
@@ -671,7 +679,7 @@ def plot_cloud_images(images):
 
 
 if __name__ == '__main__':
-    run_params = {'IF_AIRMSPI': False,
+    run_params = {'IF_AIRMSPI': True,
                   'IF_NEW_TXT': False,
                   'n_jobs': 60,
                   'maxiter': 150,
