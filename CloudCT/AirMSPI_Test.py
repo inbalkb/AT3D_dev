@@ -35,8 +35,8 @@ def main():
 def AirMSPI_wind_test():
     mass_error = lambda ext_est, ext_gt, eps=1e-6: (np.linalg.norm(ext_gt, ord=1) - np.linalg.norm(ext_est, ord=1)) / (np.linalg.norm(ext_gt, ord=1) + eps)
     test_ind = 1
-    wind_vec = np.array([0, 3, 6, 9, 12, 15, 20, 30, 40, 50])
-    pixel_precent = 0.33
+    wind_vec = np.array([1, 3, 6, 9, 12, 14])
+    pixel_precent = 0.11
     gt_I_list = []
     I_list = []
     gt_DoLP_list = []
@@ -47,7 +47,7 @@ def AirMSPI_wind_test():
     DoLP_delta_list = []
     AoLP_delta_list = []
     for wind in wind_vec:
-        gt_I, I, gt_DoLP, DoLP, gt_AoLP_scat, AoLP_scat = AirMSPI_Test(test_ind, wind)
+        gt_I, I, gt_DoLP, DoLP, gt_AoLP_scat, AoLP_scat = AirMSPI_Test(test_ind, wind, render_cloud=False)
         if wind == wind_vec[0]:
             rand_ind = np.random.choice(np.arange(len(gt_I[0,:,:].ravel())), size=int(pixel_precent * len(gt_I[0,:,:].ravel())),
                                         replace=False)
@@ -77,12 +77,12 @@ def AirMSPI_wind_test():
         enumerate(zip(gt_I_per_im, I_per_im, gt_DoLP_per_im, DoLP_per_im, gt_AoLP_per_im, AoLP_per_im,
                       I_delta_per_im, DoLP_delta_per_im, AoLP_delta_per_im)):
 
-        fig, axarr = plt.subplots(3, 10, figsize=(20, 20))
+        fig, axarr = plt.subplots(3, len(wind_vec), figsize=(20, 20))
         fig.subplots_adjust(hspace=0.2, wspace=0.2)
         axarr = axarr.flatten()
-        for ax, gt_param, est_param, wind in zip(axarr[:10], curr_gt_I, curr_I, wind_vec):
-            max_val = max(gt_param.max(), est_param.max())
-            min_val = min(gt_param.min(), est_param.min())
+        for ax, gt_param, est_param, wind in zip(axarr[:len(wind_vec)], curr_gt_I, curr_I, wind_vec):
+            max_val = 0.032 #max(gt_param.max(), est_param.max())
+            min_val = 0 #min(gt_param.min(), est_param.min())
             ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
             ax.set_title(f'I \n speed=' + str(wind) + '[m/s]')
             ax.set_xlim([0.9 * min_val, 1.1 * max_val])
@@ -91,9 +91,9 @@ def AirMSPI_wind_test():
             ax.set_ylabel('Estimated', fontsize=14)
             ax.set_xlabel('True', fontsize=14)
             ax.set_aspect('equal')
-        for ax, gt_param, est_param, wind in zip(axarr[10:20], curr_gt_D, curr_D, wind_vec):
-            max_val = max(gt_param.max(), est_param.max())
-            min_val = min(gt_param.min(), est_param.min())
+        for ax, gt_param, est_param, wind in zip(axarr[len(wind_vec):2*len(wind_vec)], curr_gt_D, curr_D, wind_vec):
+            max_val = 0.85 #max(gt_param.max(), est_param.max())
+            min_val = 0.2 #min(gt_param.min(), est_param.min())
             ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
             ax.set_title(f'DoLP \n speed=' + str(wind) + '[m/s]')
             ax.set_xlim([0.9 * min_val, 1.1 * max_val])
@@ -102,9 +102,9 @@ def AirMSPI_wind_test():
             ax.set_ylabel('Estimated', fontsize=14)
             ax.set_xlabel('True', fontsize=14)
             ax.set_aspect('equal')
-        for ax, gt_param, est_param, wind in zip(axarr[20:], curr_gt_A, curr_A, wind_vec):
-            max_val = max(gt_param.max(), est_param.max())
-            min_val = min(gt_param.min(), est_param.min())
+        for ax, gt_param, est_param, wind in zip(axarr[2*len(wind_vec):], curr_gt_A, curr_A, wind_vec):
+            max_val = 100 #max(gt_param.max(), est_param.max())
+            min_val = 80 #min(gt_param.min(), est_param.min())
             ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
             ax.set_title(f'AoLP \n speed=' + str(wind) + '[m/s]')
             ax.set_xlim([0.9 * min_val, 1.1 * max_val])
@@ -115,22 +115,22 @@ def AirMSPI_wind_test():
             ax.set_aspect('equal')
         fig.suptitle('image #'+str(im_ind)+' scatter plots for different wind speeds', size=16, y=0.95)
 
-        fig, axarr = plt.subplots(1, 3, figsize=(20, 20))
-        fig.subplots_adjust(hspace=0.2, wspace=0.2)
-        axarr = axarr.flatten()
-        axarr[0].plot(wind_vec, curr_delta_I)
-        axarr[0].set_title('I mass error values as a function of wind speed')
-        axarr[0].set_ylabel('mass error value', fontsize=14)
-        axarr[0].set_xlabel('wind speed [m/s]', fontsize=14)
-        axarr[1].plot(wind_vec, curr_delta_D)
-        axarr[1].set_title('DoLP mass error values as a function of wind speed')
-        axarr[1].set_ylabel('mass error value', fontsize=14)
-        axarr[1].set_xlabel('wind speed [m/s]', fontsize=14)
-        axarr[2].plot(wind_vec, curr_delta_A)
-        axarr[2].set_title('AoLP mass error values as a function of wind speed')
-        axarr[2].set_ylabel('mass error value', fontsize=14)
-        axarr[2].set_xlabel('wind speed [m/s]', fontsize=14)
-        fig.suptitle('image #' + str(im_ind) + ' mass error values', size=16, y=0.95)
+        # fig, axarr = plt.subplots(1, 3, figsize=(20, 20))
+        # fig.subplots_adjust(hspace=0.2, wspace=0.2)
+        # axarr = axarr.flatten()
+        # axarr[0].plot(wind_vec, curr_delta_I)
+        # axarr[0].set_title('I mass error values as a function of wind speed')
+        # axarr[0].set_ylabel('mass error value', fontsize=14)
+        # axarr[0].set_xlabel('wind speed [m/s]', fontsize=14)
+        # axarr[1].plot(wind_vec, curr_delta_D)
+        # axarr[1].set_title('DoLP mass error values as a function of wind speed')
+        # axarr[1].set_ylabel('mass error value', fontsize=14)
+        # axarr[1].set_xlabel('wind speed [m/s]', fontsize=14)
+        # axarr[2].plot(wind_vec, curr_delta_A)
+        # axarr[2].set_title('AoLP mass error values as a function of wind speed')
+        # axarr[2].set_ylabel('mass error value', fontsize=14)
+        # axarr[2].set_xlabel('wind speed [m/s]', fontsize=14)
+        # fig.suptitle('image #' + str(im_ind) + ' mass error values', size=16, y=0.95)
     plt.show()
 
 
@@ -139,7 +139,7 @@ def AirMSPI_wind_test():
 
 
 
-def AirMSPI_Test(test_ind=1, surface_wind_speed=10.):
+def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
     # wind: 9.9-10.2m/s according to worldview.earthdata.
     stokes_list = ['I', 'Q', 'U']
     path_retrieval = "/wdata/inbalkom/NN_outputs/AirMSPI/test_results/2023-12-07/15-02-30/airmspi_recovery.mat"
@@ -163,13 +163,17 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10.):
     sun_azimuth = np.mean(gt_meas_data['_sun_azimuth_list'])
     sun_zenith = np.mean(gt_meas_data['_sun_zenith_list'])
 
-
-    # make sure all values will exist in the mie tables
-    cloud_scatterer.veff.data[cloud_scatterer.veff.data <= 0.02] = 0.0201
-    cloud_scatterer.veff.data[cloud_scatterer.veff.data >= 0.55] = 0.55
-    cloud_scatterer.reff.data[cloud_scatterer.reff.data <= 0.01] = 0.0101
-    cloud_scatterer.reff.data[cloud_scatterer.reff.data >= 35] = 35 - 1.1e-3
-
+    if render_cloud:
+        # make sure all values will exist in the mie tables
+        cloud_scatterer.veff.data[cloud_scatterer.veff.data <= 0.02] = 0.0201
+        cloud_scatterer.veff.data[cloud_scatterer.veff.data >= 0.55] = 0.55
+        cloud_scatterer.reff.data[cloud_scatterer.reff.data <= 0.01] = 0.0101
+        cloud_scatterer.reff.data[cloud_scatterer.reff.data >= 35] = 35 - 1.1e-3
+    else:
+        cloud_scatterer.density.data[:, :, :] = 0.
+        cloud_scatterer.density.data[1, 1, 1] = 0.1
+        cloud_scatterer.veff.data[:, :, :] = 0.0201
+        cloud_scatterer.reff.data[:, :, :] = 0.0101
     # load atmosphere
     atmosphere = xr.open_dataset('../data/ancillary/AFGL_summer_mid_lat.nc')
     # subset the atmosphere, choose only the bottom twenty km.
@@ -346,11 +350,11 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10.):
         a = 5
 
     gt_I = np.transpose(np.array(gt_images),[0, 3, 1, 2])[:, 0, 0:24, 100:200]
-    I = np.array(images)[:, 0, 0:24, 100:200]
+    I = np.array(images)[:, 0, 150:174, 100:200]
     gt_DoLP = np.array(gt_DOLP_scatter)[:, 0:24, 100:200]
-    DoLP = np.array(DOLP_scatter)[:, 0:24, 100:200]
+    DoLP = np.array(DOLP_scatter)[:, 150:174, 100:200]
     gt_AoLP_scat = np.array(gt_AOLP_scatter)[:, 0:24, 100:200]
-    AoLP_scat = np.array(AOLP_scatter)[:, 0:24, 100:200]
+    AoLP_scat = np.array(AOLP_scatter)[:, 150:174, 100:200]
     print("--------------")
     return gt_I, I, gt_DoLP, DoLP, gt_AoLP_scat, AoLP_scat
 

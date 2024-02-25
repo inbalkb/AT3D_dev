@@ -30,7 +30,7 @@ def main(run_params, clouds_path):
     cloud_ids = [i.split('/')[-1].split('cloud')[1].split('.txt')[0] for i in
                  glob.glob(clouds_path)]
     # cloud_ids = sample(cloud_ids,50)
-    cloud_ids = [str(ind) for ind in np.arange(8001, 11908)]
+    # cloud_ids = [str(ind) for ind in np.arange(8001, 11908)]
     all_cloud_paths = ['/'.join(clouds_path.split('/')[:-1]) + '/cloud' + str(cloud_id) + '.txt' for cloud_id in cloud_ids]
     clouds_params = [dict([('path', cloud_path), ('init_lwc', 0.1), ('init_reff', 10)]) for cloud_path in all_cloud_paths]
     clouds = [(str(cloud_id), cloud_params) for cloud_id, cloud_params in zip(cloud_ids, clouds_params)]
@@ -323,9 +323,9 @@ def run_simulation(args):
                                     'cloud_results_' + cloud_name + '.pkl')
             print(f'saving cloud in {filename}')
 
-            if not os.path.exists(os.path.join(run_params['images_path_for_nn'],path_stamp)):
+            if not os.path.exists(os.path.join(run_params['images_path_for_nn'],'SIMULATED_AIRMSPI_TRAIN_'+path_stamp)):
                 # Create a new directory because it does not exist
-                safe_mkdirs(os.path.join(run_params['images_path_for_nn'],path_stamp))
+                safe_mkdirs(os.path.join(run_params['images_path_for_nn'],'SIMULATED_AIRMSPI_TRAIN_'+path_stamp))
                 print("The directory for saving cloud results for projection {} was created.".format(path_stamp))
 
             with open(filename, 'wb') as outfile:
@@ -687,7 +687,7 @@ if __name__ == '__main__':
                   'max_simultaneous_simulations': 5,
                   'surface_wind_speed_mean': 6.67,  # m/s
                   'surface_wind_speed_std': 1.5,  # m/s
-                  'IS_SUN_CONST': 0,
+                  'IS_SUN_CONST': 1,
                   'IS_WIND_CONST': 1,
                   'cancel_noise': False
                   }
@@ -699,6 +699,7 @@ if __name__ == '__main__':
         run_params['Lat_for_sun_angles'] = 32  # degrees
         run_params['const_sun_azimuth'] = 36.56
         run_params['const_sun_zenith'] = 154.74
+        run_params['surface_wind_speed_mean'] = 10. #m/s
         run_params['temperature'] = 287.63  # wind: 9.9-10.2m/s according to worldview.earthdata. 14.40-14.55 degs C.
     else:
         run_params['SATS_NUMBER'] = 10
@@ -736,7 +737,8 @@ if __name__ == '__main__':
             'max_bias': 5,
             'max_gain': 5
         }
-    clouds_path = "/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
+    clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
+        #"/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
         #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
     #main(run_params, clouds_path)
     simple_main(run_params, clouds_path)
