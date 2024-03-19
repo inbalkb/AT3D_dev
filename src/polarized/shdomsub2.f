@@ -1188,7 +1188,7 @@ C     appropriate parameters.  More BRDF surface types may be added easily
 C     by putting in the appropriate function calls.
 C            Type        Parameters
 C       L  Lambertian    albedo
-C       W  WaveFresnel   Real, Imaginary index of refraction, wind speed (m/s)
+C       W  WaveFresnel   Real, Imaginary index of refraction, wind speed (m/s), albedo
 C       D  Diner et al   a, k, b, zeta, sigma
 C       O  Ocean         Wind speed (m/s), Pigmentation (mg/m^3)
 C       R  RPV-original  rho0, k, Theta
@@ -1209,7 +1209,8 @@ C           (for testing, as done more efficiently by Lambertian routines)
       ELSE IF (SFCTYPE .EQ. 'W') THEN
 C         W: Fresnel reflection with Gaussian distribution of slopes
         CALL WAVE_FRESNEL_REFLECTION (REFPARMS(1), REFPARMS(2),
-     .            REFPARMS(3), MU1, MU2, PHI1, PHI2, NSTOKES, REFLECT)
+     .            REFPARMS(3), REFPARMS(4), MU1, MU2, PHI1,
+     .            PHI2, NSTOKES, REFLECT)
       ELSE IF (SFCTYPE .EQ. 'D') THEN
 C         D: Diner et al., depolarizing modified RPV + Fresnel reflection
 C            from microfacets with uniform or Gaussian distribution of slopes
@@ -1243,7 +1244,7 @@ C         O: Ocean BRDF from 6S modified by Norm Loeb
 
 
 
-      SUBROUTINE WAVE_FRESNEL_REFLECTION (MRE, MIM, WINDSPEED,
+      SUBROUTINE WAVE_FRESNEL_REFLECTION (MRE, MIM, WINDSPEED, ALBDO,
      .                         MUI, MUR, PHII, PHIR, NSTOKES, REFLECT)
 C       Computes the polarized Fresnel reflection from a dielectric
 C     interface with a Gaussian distribution of slopes, including shadowing.
@@ -1262,7 +1263,8 @@ C     intensity of reflected sunlight.  J. Geophys. Res. 102, 16989-17013.
 C
       IMPLICIT NONE
       INTEGER NSTOKES
-      REAL    MRE, MIM, WINDSPEED, MUI, MUR, PHII, PHIR, REFLECT(4,4)
+      REAL    MRE, MIM, WINDSPEED, ALBDO
+      REAL    MUI, MUR, PHII, PHIR, REFLECT(4,4)
       INTEGER I, J
       REAL*8  SIGMA2, DMUI, DMUR, DCOSI, DSINI, DCOSR, DSINR, DSI, DSR
       REAL*8  VI1, VI2, VI3, VR1, VR2, VR3, UNIT1, UNIT2, UNIT3
@@ -1406,6 +1408,13 @@ C      Shadowing
       SHADOWR=0.5*(S1*T1/DCOT-T2)
       SHADOW=1D0/(1D0+SHADOWI+SHADOWR)
       REFLECT(1:NSTOKES,1:NSTOKES) = REFLECT(1:NSTOKES,1:NSTOKES)*SHADOW
+      REFLECT(1,1)= REFLECT(1,1)+ALBDO
+C      WRITE(*,*) "-------------------------------------"
+C      WRITE(*,*) ALBDO
+C      WRITE(*,*) "-------------------------------------"
+C      WRITE(*,*) REFLECT
+C      WRITE(*,*) "-------------------------------------"
+C      WRITE(*,*) SHADOW
       RETURN
       END
 

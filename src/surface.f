@@ -47,7 +47,7 @@ Cf2py intent(out) :: IERR, ERRMSG
       INTEGER COUNT
       INTEGER N, I, I0, IX, IY, J
       REAL    ALB, TEMP, MRE, MIM, RHO0, KR, THETA, WSPD, PCL
-      REAL    A, B, ZETA, SIGMA
+      REAL    A, B, ZETA, SIGMA, GNDABD
 
       IERR = 0
       GNDTEMP = 0.0
@@ -90,7 +90,7 @@ C           Surface file type L is for variable Lambertian surface
 
 C           Surface file type W is for Wave-Fresnel surface
       ELSE IF (SFCTYPE .EQ. 'VW') THEN
-        NSFCPAR = 4
+        NSFCPAR = 5
         IF (NSFCPAR .GT. MAXSFCPARS ) THEN
           IERR = 1
           WRITE (ERRMSG,*) 'PREP_SURFACE: MAXSFCPARS exceeded'
@@ -103,6 +103,7 @@ C           Surface file type W is for Wave-Fresnel surface
           MRE = PARMS_IN(2,COUNT)
           MIM = PARMS_IN(3,COUNT)
           WSPD = PARMS_IN(4,COUNT)
+          GNDABD = PARMS_IN(5,COUNT)
 
           IF (IX .GE. 1 .AND. IX .LE. NXSFC .AND.
      .        IY .GE. 1 .AND. IY .LE. NYSFC) THEN
@@ -111,8 +112,11 @@ C           Surface file type W is for Wave-Fresnel surface
             SFCPARMS(I+2) = MRE
             SFCPARMS(I+3) = MIM
             SFCPARMS(I+4) = WSPD
+            SFCPARMS(I+5) = GNDABD
             GNDTEMP = GNDTEMP + TEMP
             N = N + 1
+            GNDALBEDO = PARMS_IN(5,COUNT)
+C           the GNDALBEDO is constant over the water surface            
           ENDIF
         ENDDO
 
