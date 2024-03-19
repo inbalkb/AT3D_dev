@@ -29,8 +29,103 @@ origin, xaxis, yaxis, zaxis = [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]
 
 
 def main():
-    AirMSPI_wind_test()
+    AirMSPI_Test(test_ind=5, surface_wind_speed=10., render_cloud=True, zeta=None)
+    # AirMSPI_Diner_test()
+    # AirMSPI_wind_test()
+    # AirMSPI_albedo_test()
     print('finished successfully.')
+
+
+def AirMSPI_Diner_test():
+    mass_error = lambda ext_est, ext_gt, eps=1e-6: (np.linalg.norm(ext_gt, ord=1) - np.linalg.norm(ext_est, ord=1)) / (np.linalg.norm(ext_gt, ord=1) + eps)
+    test_ind = 1
+    wind_vec = np.array([10.])
+    zeta_vec = np.array([0.1, 0.4, 0.8, 1])
+    pixel_precent = 0.11
+    gt_I_list = []
+    I_list = []
+    gt_DoLP_list = []
+    DoLP_list = []
+    gt_AoLP_scat_list = []
+    AoLP_scat_list = []
+    I_delta_list = []
+    DoLP_delta_list = []
+    AoLP_delta_list = []
+    title_list = []
+    for wind in wind_vec:
+        for zeta in zeta_vec:
+            title_list.append(f'wind={wind}[m/s]\n zeta={zeta}')
+            gt_I, I, gt_DoLP, DoLP, gt_AoLP_scat, AoLP_scat = AirMSPI_Test(test_ind, wind, render_cloud=False, zeta=zeta)
+            if wind == wind_vec[0] and zeta == zeta_vec[0]:
+                rand_ind = np.random.choice(np.arange(len(gt_I[0,:,:].ravel())), size=int(pixel_precent * len(gt_I[0,:,:].ravel())),
+                                            replace=False)
+            gt_I_list.append(gt_I.reshape(gt_I.shape[:-2]+tuple([-1]))[:, rand_ind])
+            I_list.append(I.reshape(I.shape[:-2]+tuple([-1]))[:, rand_ind])
+            gt_DoLP_list.append(gt_DoLP.reshape(gt_DoLP.shape[:-2]+tuple([-1]))[:, rand_ind])
+            DoLP_list.append(DoLP.reshape(DoLP.shape[:-2]+tuple([-1]))[:, rand_ind])
+            gt_AoLP_scat_list.append(gt_AoLP_scat.reshape(gt_AoLP_scat.shape[:-2]+tuple([-1]))[:, rand_ind])
+            AoLP_scat_list.append(AoLP_scat.reshape(AoLP_scat.shape[:-2]+tuple([-1]))[:, rand_ind])
+            delta_I = [mass_error(im, gt_im) for im, gt_im in zip(I_list[-1], gt_I_list[-1])]
+            delta_D = [mass_error(im, gt_im) for im, gt_im in zip(DoLP_list[-1], gt_DoLP_list[-1])]
+            delta_A = [mass_error(im, gt_im) for im, gt_im in zip(AoLP_scat_list[-1], gt_AoLP_scat_list[-1])]
+            I_delta_list.append(np.array(delta_I))
+            DoLP_delta_list.append(np.array(delta_D))
+            AoLP_delta_list.append(np.array(delta_A))
+
+    gt_I_per_im = np.array(gt_I_list).transpose((1, 0, 2))
+    I_per_im = np.array(I_list).transpose((1, 0, 2))
+    gt_DoLP_per_im = np.array(gt_DoLP_list).transpose((1, 0, 2))
+    DoLP_per_im = np.array(DoLP_list).transpose((1, 0, 2))
+    gt_AoLP_per_im = np.array(gt_AoLP_scat_list).transpose((1, 0, 2))
+    AoLP_per_im = np.array(AoLP_scat_list).transpose((1, 0, 2))
+    I_delta_per_im = np.array(I_delta_list).transpose((1, 0))
+    DoLP_delta_per_im = np.array(DoLP_delta_list).transpose((1, 0))
+    AoLP_delta_per_im = np.array(AoLP_delta_list).transpose((1, 0))
+    for im_ind, (curr_gt_I, curr_I, curr_gt_D, curr_D, curr_gt_A, curr_A, curr_delta_I, curr_delta_D, curr_delta_A) in \
+        enumerate(zip(gt_I_per_im, I_per_im, gt_DoLP_per_im, DoLP_per_im, gt_AoLP_per_im, AoLP_per_im,
+                      I_delta_per_im, DoLP_delta_per_im, AoLP_delta_per_im)):
+
+        fig, axarr = plt.subplots(3, len(wind_vec)*len(zeta_vec), figsize=(20, 20))
+        fig.subplots_adjust(hspace=0.5, wspace=0.2)
+        axarr = axarr.flatten()
+        for ax, title, gt_param, est_param in zip(axarr[:(len(wind_vec)*len(zeta_vec))], title_list, curr_gt_I, curr_I):
+            max_val = 0.032 #max(gt_param.max(), est_param.max())
+            min_val = 0 #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            ax.set_title(f'I \n' + title)
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        for ax, title, gt_param, est_param in zip(axarr[(len(wind_vec)*len(zeta_vec)):2*(len(wind_vec)*len(zeta_vec))], title_list, curr_gt_D, curr_D):
+            max_val = 1. #max(gt_param.max(), est_param.max())
+            min_val = 0. #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            ax.set_title(f'DoLP \n' + title)
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        for ax, title, gt_param, est_param in zip(axarr[2*(len(wind_vec)*len(zeta_vec)):], title_list, curr_gt_A, curr_A):
+            max_val = 100 #max(gt_param.max(), est_param.max())
+            min_val = 80 #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            ax.set_title(f'AoLP scatter \n' + title)
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        fig.suptitle('image #'+str(im_ind)+' scatter plots for different wind speeds and zetas', size=16, y=0.95)
+
+    plt.show()
+    a=5
+
 
 def AirMSPI_wind_test():
     mass_error = lambda ext_est, ext_gt, eps=1e-6: (np.linalg.norm(ext_gt, ord=1) - np.linalg.norm(ext_est, ord=1)) / (np.linalg.norm(ext_gt, ord=1) + eps)
@@ -78,7 +173,7 @@ def AirMSPI_wind_test():
                       I_delta_per_im, DoLP_delta_per_im, AoLP_delta_per_im)):
 
         fig, axarr = plt.subplots(3, len(wind_vec), figsize=(20, 20))
-        fig.subplots_adjust(hspace=0.2, wspace=0.2)
+        fig.subplots_adjust(hspace=0.5, wspace=0.2)
         axarr = axarr.flatten()
         for ax, gt_param, est_param, wind in zip(axarr[:len(wind_vec)], curr_gt_I, curr_I, wind_vec):
             max_val = 0.032 #max(gt_param.max(), est_param.max())
@@ -93,7 +188,7 @@ def AirMSPI_wind_test():
             ax.set_aspect('equal')
         for ax, gt_param, est_param, wind in zip(axarr[len(wind_vec):2*len(wind_vec)], curr_gt_D, curr_D, wind_vec):
             max_val = 0.85 #max(gt_param.max(), est_param.max())
-            min_val = 0.2 #min(gt_param.min(), est_param.min())
+            min_val = 0.15 #min(gt_param.min(), est_param.min())
             ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
             ax.set_title(f'DoLP \n speed=' + str(wind) + '[m/s]')
             ax.set_xlim([0.9 * min_val, 1.1 * max_val])
@@ -134,15 +229,120 @@ def AirMSPI_wind_test():
     plt.show()
 
 
+def AirMSPI_albedo_test():
+    mass_error = lambda ext_est, ext_gt, eps=1e-6: (np.linalg.norm(ext_gt, ord=1) - np.linalg.norm(ext_est, ord=1)) / (np.linalg.norm(ext_gt, ord=1) + eps)
+    test_ind = 1
+    wind_vec = np.array([0.01, 0.02, 0.03])  #np.array([0.02, 0.03, 0.1, 0.2, 0.5])
+    pixel_precent = 0.11
+    gt_I_list = []
+    I_list = []
+    gt_DoLP_list = []
+    DoLP_list = []
+    gt_AoLP_scat_list = []
+    AoLP_scat_list = []
+    I_delta_list = []
+    DoLP_delta_list = []
+    AoLP_delta_list = []
+    for wind in wind_vec:
+        gt_I, I, gt_DoLP, DoLP, gt_AoLP_scat, AoLP_scat = AirMSPI_Test(test_ind, wind, render_cloud=False)
+        if wind == wind_vec[0]:
+            rand_ind = np.random.choice(np.arange(len(gt_I[0,:,:].ravel())), size=int(pixel_precent * len(gt_I[0,:,:].ravel())),
+                                        replace=False)
+        gt_I_list.append(gt_I.reshape(gt_I.shape[:-2]+tuple([-1]))[:, rand_ind])
+        I_list.append(I.reshape(I.shape[:-2]+tuple([-1]))[:, rand_ind])
+        gt_DoLP_list.append(gt_DoLP.reshape(gt_DoLP.shape[:-2]+tuple([-1]))[:, rand_ind])
+        DoLP_list.append(DoLP.reshape(DoLP.shape[:-2]+tuple([-1]))[:, rand_ind])
+        gt_AoLP_scat_list.append(gt_AoLP_scat.reshape(gt_AoLP_scat.shape[:-2]+tuple([-1]))[:, rand_ind])
+        AoLP_scat_list.append(AoLP_scat.reshape(AoLP_scat.shape[:-2]+tuple([-1]))[:, rand_ind])
+        delta_I = [mass_error(im, gt_im) for im, gt_im in zip(I_list[-1], gt_I_list[-1])]
+        delta_D = [mass_error(im, gt_im) for im, gt_im in zip(DoLP_list[-1], gt_DoLP_list[-1])]
+        delta_A = [mass_error(im, gt_im) for im, gt_im in zip(AoLP_scat_list[-1], gt_AoLP_scat_list[-1])]
+        I_delta_list.append(np.array(delta_I))
+        DoLP_delta_list.append(np.array(delta_D))
+        AoLP_delta_list.append(np.array(delta_A))
+
+    gt_I_per_im = np.array(gt_I_list).transpose((1, 0, 2))
+    I_per_im = np.array(I_list).transpose((1, 0, 2))
+    gt_DoLP_per_im = np.array(gt_DoLP_list).transpose((1, 0, 2))
+    DoLP_per_im = np.array(DoLP_list).transpose((1, 0, 2))
+    gt_AoLP_per_im = np.array(gt_AoLP_scat_list).transpose((1, 0, 2))
+    AoLP_per_im = np.array(AoLP_scat_list).transpose((1, 0, 2))
+    I_delta_per_im = np.array(I_delta_list).transpose((1, 0))
+    DoLP_delta_per_im = np.array(DoLP_delta_list).transpose((1, 0))
+    AoLP_delta_per_im = np.array(AoLP_delta_list).transpose((1, 0))
+    for im_ind, (curr_gt_I, curr_I, curr_gt_D, curr_D, curr_gt_A, curr_A, curr_delta_I, curr_delta_D, curr_delta_A) in \
+        enumerate(zip(gt_I_per_im, I_per_im, gt_DoLP_per_im, DoLP_per_im, gt_AoLP_per_im, AoLP_per_im,
+                      I_delta_per_im, DoLP_delta_per_im, AoLP_delta_per_im)):
+
+        fig, axarr = plt.subplots(3, len(wind_vec), figsize=(20, 20))
+        fig.subplots_adjust(hspace=0.5, wspace=0.2)
+        axarr = axarr.flatten()
+        for ax, gt_param, est_param, wind in zip(axarr[:len(wind_vec)], curr_gt_I, curr_I, wind_vec):
+            max_val = 0.1 #max(gt_param.max(), est_param.max())
+            min_val = 0 #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            #ax.set_title(f'I \n speed=' + str(wind) + '[m/s]')
+            ax.set_title(f'I \n albedo=' + str(wind))
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        for ax, gt_param, est_param, wind in zip(axarr[len(wind_vec):2*len(wind_vec)], curr_gt_D, curr_D, wind_vec):
+            max_val = 0.85 #max(gt_param.max(), est_param.max())
+            min_val = 0.15 #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            # ax.set_title(f'DoLP \n speed=' + str(wind) + '[m/s]')
+            ax.set_title(f'DoLP \n albedo=' + str(wind))
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        for ax, gt_param, est_param, wind in zip(axarr[2*len(wind_vec):], curr_gt_A, curr_A, wind_vec):
+            max_val = 100 #max(gt_param.max(), est_param.max())
+            min_val = 80 #min(gt_param.min(), est_param.min())
+            ax.scatter(gt_param, est_param, facecolors='none', edgecolors='b')
+            # ax.set_title(f'AoLP \n speed=' + str(wind) + '[m/s]')
+            ax.set_title(f'AoLP \n albedo=' + str(wind))
+            ax.set_xlim([0.9 * min_val, 1.1 * max_val])
+            ax.set_ylim([0.9 * min_val, 1.1 * max_val])
+            ax.plot(ax.get_xlim(), ax.get_ylim(), c='r', ls='--')
+            ax.set_ylabel('Estimated', fontsize=14)
+            ax.set_xlabel('True', fontsize=14)
+            ax.set_aspect('equal')
+        # fig.suptitle('image #'+str(im_ind)+' scatter plots for different wind speeds', size=16, y=0.95)
+        fig.suptitle('image #' + str(im_ind) + ' scatter plots for different albedos', size=16, y=0.95)
+
+        # fig, axarr = plt.subplots(1, 3, figsize=(20, 20))
+        # fig.subplots_adjust(hspace=0.2, wspace=0.2)
+        # axarr = axarr.flatten()
+        # axarr[0].plot(wind_vec, curr_delta_I)
+        # axarr[0].set_title('I mass error values as a function of wind speed')
+        # axarr[0].set_ylabel('mass error value', fontsize=14)
+        # axarr[0].set_xlabel('wind speed [m/s]', fontsize=14)
+        # axarr[1].plot(wind_vec, curr_delta_D)
+        # axarr[1].set_title('DoLP mass error values as a function of wind speed')
+        # axarr[1].set_ylabel('mass error value', fontsize=14)
+        # axarr[1].set_xlabel('wind speed [m/s]', fontsize=14)
+        # axarr[2].plot(wind_vec, curr_delta_A)
+        # axarr[2].set_title('AoLP mass error values as a function of wind speed')
+        # axarr[2].set_ylabel('mass error value', fontsize=14)
+        # axarr[2].set_xlabel('wind speed [m/s]', fontsize=14)
+        # fig.suptitle('image #' + str(im_ind) + ' mass error values', size=16, y=0.95)
+    plt.show()
 
 
 
 
-
-def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
+def AirMSPI_Test(test_ind=5, surface_wind_speed=10., render_cloud=True, zeta=None):
     # wind: 9.9-10.2m/s according to worldview.earthdata.
     stokes_list = ['I', 'Q', 'U']
-    path_retrieval = "/wdata/inbalkom/NN_outputs/AirMSPI/test_results/2023-12-07/15-02-30/airmspi_recovery.mat"
+    path_retrieval = "/wdata_visl/inbalkom/NN_outputs/test/2024-02-29/17-20-13-AirMSPI-dropped5python/airmspi_recovery_bomex.mat"
+    #"/wdata_visl/inbalkom/NN_outputs/test/2024-02-29/16-04-16-AirMSPI-dropped5python/airmspi_recovery_bomex.mat"
+                     # "/wdata/inbalkom/NN_outputs/AirMSPI/test_results/2023-12-07/15-02-30/airmspi_recovery.mat"
     mask_path = "/wdata/inbalkom/NN_Data/AIRMSPI_MEASUREMENTS/mask_72x72x32_vox50x50x40m.mat"
 
     output_path = '/'.join(path_retrieval.split('/')[:-1])
@@ -235,11 +435,17 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
     solvers_dict = at3d.containers.SolversDict()
     # note we could set solver dependent surfaces / sources / numerical_config here
     # just as we have got solver dependent optical properties.
-    # surface = at3d.surface.lambertian(0.05)
-    surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
-                                        surface_wind_speed=surface_wind_speed,
-                                        ground_temperature=288.15)  # 15 degrees Celcius
-    print('added wave_fresnel surface with const wind speed of {} m/s'.format(surface_wind_speed))
+    # surface = at3d.surface.lambertian(surface_wind_speed)
+    if zeta==None:
+        surface = at3d.surface.wave_fresnel(real_refractive_index=1.331, imaginary_refractive_index=2e-8,
+                                            surface_wind_speed=surface_wind_speed,
+                                            ground_temperature=288.15)  # 15 degrees Celcius
+        print('added wave_fresnel surface with const wind speed of {} m/s'.format(surface_wind_speed))
+    else:
+        sigma = np.sqrt((0.003+0.00512*surface_wind_speed)/2)
+        surface = at3d.surface.diner(A=0.04, K=0.8, B=0.4, ZETA=zeta, SIGMA=sigma, ground_temperature=288.15)  # 15 degrees Celcius
+        print('added Diner et al. surface with const wind speed of {} m/s zeta of {}'.format(surface_wind_speed, zeta))
+
 
 
     for wavelength in mean_wavelengths:
@@ -329,7 +535,7 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
             gt_images_scatter.append(calc_image_in_scattering_plane_vectorbase(copied, gt_images[sensor_ind], sensor_name, sun_azimuth, sun_zenith))
             assert np.allclose(gt_images[sensor_ind][:,:,0], gt_images_scatter[-1][0]), "Bad calculation of scattering plane."
 
-    gt_images = [np.transpose(gt_im, [2, 1, 0]).T for gt_im in gt_images]
+    gt_images = [np.transpose(gt_im, [2, 0, 1]) for gt_im in gt_images]
 
     DOLP_scatter = [np.sqrt(im[1]**2+im[2]**2)/im[0] for im in images_scatter]
     AOLP_scatter = [np.rad2deg(0.5*np.arctan2(im[2], im[1])) for im in images_scatter]
@@ -340,8 +546,8 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
     for im in gt_AOLP_scatter:
         im[im < 0] = im[im < 0] + 180
     if 0:
-        # plot_cloud_images(images)
-        plot_cloud_images([gt_image.T for gt_image in gt_images.T])
+        plot_cloud_images(images)
+        plot_cloud_images(gt_images)
         show_scatter_plot_colorbar(gt_images[test_ind][0,80:300,:], images[test_ind][0,80:300,:], param_name='I, wind={}'.format(surface_wind_speed), pixel_precent=0.01)
         show_scatter_plot_colorbar(gt_images[test_ind][1,80:300,:], images[test_ind][1,80:300,:], param_name='Q mer, wind={}'.format(surface_wind_speed), pixel_precent=0.01)
         show_scatter_plot_colorbar(gt_images[test_ind][2,80:300,:], images[test_ind][2,80:300,:], param_name='U mer, wind={}'.format(surface_wind_speed), pixel_precent=0.01)
@@ -349,7 +555,7 @@ def AirMSPI_Test(test_ind=1, surface_wind_speed=10., render_cloud=True):
         show_scatter_plot_colorbar(gt_AOLP_scatter[test_ind][80:300, :], AOLP_scatter[test_ind][80:300, :], param_name='AoLP scattering, wind={}'.format(surface_wind_speed), pixel_precent=0.01)
         a = 5
 
-    gt_I = np.transpose(np.array(gt_images),[0, 3, 1, 2])[:, 0, 0:24, 100:200]
+    gt_I = np.array(gt_images)[:, 0, 0:24, 100:200]
     I = np.array(images)[:, 0, 150:174, 100:200]
     gt_DoLP = np.array(gt_DOLP_scatter)[:, 0:24, 100:200]
     DoLP = np.array(DOLP_scatter)[:, 150:174, 100:200]
@@ -366,9 +572,11 @@ def plot_cloud_images(images):
     fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
     fig.subplots_adjust(hspace=0.2, wspace=0.2)
     axarr = axarr.flatten()
+    vmin = np.array(images)[:, 0, :, :].min()
+    vmax = np.array(images)[:, 0, :, :].max()
     for ind, (ax, image) in enumerate(zip(axarr, images)):
         image = np.squeeze(image.copy())
-        im = ax.imshow(image[0, ...], cmap='gray')
+        im = ax.imshow(image[0, ...], cmap='gray', vmin=vmin, vmax=vmax)
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)
@@ -380,9 +588,11 @@ def plot_cloud_images(images):
     fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
     fig.subplots_adjust(hspace=0.2, wspace=0.2)
     axarr = axarr.flatten()
+    vmin = np.array(images)[:, 1, :, :].min()
+    vmax = np.array(images)[:, 1, :, :].max()
     for ax, image in zip(axarr, images):
         image = np.squeeze(image.copy())
-        im = ax.imshow(image[1, ...], cmap='gray')
+        im = ax.imshow(image[1, ...], cmap='gray', vmin=vmin, vmax=vmax)
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)
@@ -393,9 +603,11 @@ def plot_cloud_images(images):
     fig, axarr = plt.subplots(3, 3, figsize=(20, 20))
     fig.subplots_adjust(hspace=0.2, wspace=0.2)
     axarr = axarr.flatten()
+    vmin = np.array(images)[:, 2, :, :].min()
+    vmax = np.array(images)[:, 2, :, :].max()
     for ax, image in zip(axarr, images):
         image = np.squeeze(image.copy())
-        im = ax.imshow(image[2, ...], cmap='gray')
+        im = ax.imshow(image[2, ...], cmap='gray', vmin=vmin, vmax=vmax)
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.01)
         plt.colorbar(im, cax=cax)

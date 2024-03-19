@@ -17,6 +17,7 @@ from mpl_toolkits.axes_grid1 import AxesGrid, make_axes_locatable
 import copy
 import yaml
 import CloudCT_Imager
+from CloudCTUtils import *
 import random
 import matplotlib
 matplotlib.use('TkAgg')
@@ -355,7 +356,7 @@ def convertStocks_vectorbase(sensor_dict, r_sat, GSD, method = 'meridian2camera'
             sensor_dict_out[instrument]['sensor_list'][sensor_index]['Q'].data = stokes_converted[sensor_index,1,...].reshape([cnx,cny], order='C').flatten(order='F')
             sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = stokes_converted[sensor_index,2,...].reshape([cnx,cny], order='C').flatten(order='F')
 
-        stokes_converted = stokes_converted.reshape([nviews,3,cnx,cny], order='C')
+        stokes_converted = stokes_converted.reshape([nviews, 3, cnx, cny], order='C')
         print('here')
             
     return stokes_converted, sensor_dict_out
