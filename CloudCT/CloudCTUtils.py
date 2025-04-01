@@ -975,7 +975,6 @@ def show_results(sensor_dict):
         PNCHANNELS = 1  # polarized channels
         pol_channels = ['I']
         if 'Q' in list(sensor_images[0].keys()) and 'U' in list(sensor_images[0].keys()):
-            print(" The images are polarized")
             PNCHANNELS = 3
             pol_channels = ['I', 'Q', 'U']
 
@@ -1097,10 +1096,10 @@ def generate_random_surface_wind_speed(wind_mean, wind_std):
 
 def generate_random_sun_angles_for_lat(Lat):
     day_num = np.random.default_rng().integers(1, high=365, endpoint=True)
-    LST = np.random.default_rng().integers(0, high=23, endpoint=True)
+    LST = np.random.default_rng().integers(0, high=23, endpoint=True)  # local solar time
 
-    delta = 23.45 * np.sin(np.deg2rad((360 / 365) * (284 + day_num)))
-    h = (LST - 12) * 15
+    delta = 23.45 * np.sin(np.deg2rad((360 / 365) * (284 + day_num)))  # Declination
+    h = (LST - 12) * 15  # local hour angle
     sun_alt = np.rad2deg(
         np.arcsin(np.sin(np.deg2rad(Lat)) * np.sin(np.deg2rad(delta)) +
                   np.cos(np.deg2rad(Lat)) * np.cos(np.deg2rad(delta)) * np.cos(np.deg2rad(h))))
@@ -1118,6 +1117,33 @@ def generate_random_sun_angles_for_lat(Lat):
             np.arcsin(np.cos(np.deg2rad(delta)) * np.sin(np.deg2rad(h)) / np.cos(np.deg2rad(sun_alt))))
     sun_zenith = sun_alt + 90
     return sun_azimuth, sun_zenith
+
+
+def generate_random_sun_angles_from_sunsync_orbit(sunsync_file_path, zenith_thr):
+    with open(sunsync_file_path, 'rb') as f:
+        data = pickle.load(f)
+    azimuths = np.array([data_line["sun_azimuth"] for data_line in data])
+    zeniths = np.array([data_line["sun_elevation"]+90 for data_line in data])
+    latitudes = np.array([data_line["latitude"] for data_line in data])
+    longitudes = np.array([data_line["longitude"] for data_line in data])
+    utc_times = np.array([data_line["utc_time"] for data_line in data])
+    sat_dirs = np.array([data_line["motion_direction"] for data_line in data])
+    azimuths = azimuths[zeniths > zenith_thr]
+    latitudes = latitudes[zeniths > zenith_thr]
+    longitudes = longitudes[zeniths > zenith_thr]
+    utc_times = utc_times[zeniths > zenith_thr]
+    sat_dirs = sat_dirs[zeniths > zenith_thr]
+    zeniths = zeniths[zeniths > zenith_thr]
+
+    sun_idx = np.random.default_rng().integers(0, high=len(zeniths), endpoint=False)
+
+    sun_azimuth = azimuths[sun_idx]
+    sun_zenith = zeniths[sun_idx]
+    lat = latitudes[sun_idx]
+    long = longitudes[sun_idx]
+    utc_time = utc_times[sun_idx]
+    sat_dir_angle = sat_dirs[sun_idx]
+    return sun_azimuth, sun_zenith, utc_time, lat, long, sat_dir_angle
 
 
 def calc_image_in_scattering_plane(sensor, sensor_name, sun_azimuth, sun_zenith, theta_dir, path_stamp):
@@ -1228,7 +1254,12 @@ def calc_image_in_scattering_plane(sensor, sensor_name, sun_azimuth, sun_zenith,
 
 
 def calc_image_in_scattering_plane_vectorbase(sensor, sensor_image, sensor_name, sun_azimuth, sun_zenith):
-    stokes = sensor_image
+    if sensor_image.shape[0]==3:
+        stokes = np.transpose(sensor_image,(1,2,0))
+    elif sensor_image.shape[2]==3:
+        stokes = sensor_image
+    else:
+        raise ValueError("sensor_image must have dimension 3")
     print('Converting {}'.format(sensor_name))
     zenith_dir = np.array([0, 0, 1])
     PHI = sensor.ray_phi.data
@@ -1298,7 +1329,7 @@ def calc_image_in_scattering_plane_vectorbase(sensor, sensor_image, sensor_name,
         scatter_image[:,index] = Sconvertaed_at_pixel
 
     scatter_image = scatter_image.reshape([3]+list(resolution), order='C')
-    assert np.allclose(scatter_image[0], sensor_image[:,:,0]), "Bad calculation of scattering plane."
+    assert np.allclose(scatter_image[0], stokes[:,:,0]), "Bad calculation of scattering plane."
     return scatter_image
 
 

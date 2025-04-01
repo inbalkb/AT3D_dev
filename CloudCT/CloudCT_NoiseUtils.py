@@ -198,7 +198,7 @@ def convertStocks_vectorbase(sensor_dict, r_sat, GSD, method = 'meridian2camera'
         PNCHANNELS = 1 # polarized channels
         pol_channels = ['I']
         if 'Q' in list(sensor_images[0].keys()) and 'U' in list(sensor_images[0].keys()):
-            print(" The images are polarized")
+            print("The images are polarized")
             PNCHANNELS = 3
             pol_channels = ['I','Q','U']
         else:
@@ -357,7 +357,6 @@ def convertStocks_vectorbase(sensor_dict, r_sat, GSD, method = 'meridian2camera'
             sensor_dict_out[instrument]['sensor_list'][sensor_index]['U'].data = stokes_converted[sensor_index,2,...].reshape([cnx,cny], order='C').flatten(order='F')
 
         stokes_converted = stokes_converted.reshape([nviews, 3, cnx, cny], order='C')
-        print('here')
             
     return stokes_converted, sensor_dict_out
 
@@ -880,7 +879,7 @@ def add_noise_to_images_in_camera_plane(run_params, sensor_dict, sun_zenith, sat
                 # get the right imager from the list of setup imagers per this imager id:
                 this_sat_imager = imagers_list[sat_id]
                 # update each imager individualty:
-                this_sat_imager.adjust_exposure_time(Intensities_before_noise)
+                this_sat_imager.adjust_exposure_time(Intensities_before_noise, sat_id)
 
                 image_per_imager_per_sat_per_pol_angle, radiance_to_graylevel_scale = \
                     this_sat_imager.convert_radiance_to_graylevel(Intensities_before_noise[pol_ang_index][sat_id], cancel_noise = cancel_noise)
@@ -1094,7 +1093,7 @@ def main():
         PNCHANNELS = 1  # polarized channels
         pol_channels = ['I']
         if 'Q' in list(meridian_sensor_images[0].keys()) and 'U' in list(meridian_sensor_images[0].keys()):
-            print(" The images are polarized")
+            print("The images are polarized")
             PNCHANNELS = 3
             pol_channels = ['I', 'Q', 'U']
 

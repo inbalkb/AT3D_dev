@@ -1441,7 +1441,7 @@ class Imager(object):
                 "If you still want to change the exposure time, use set_exposure_time() method and do not use adjust_exposure_time().")
         return self._exposure_time
 
-    def adjust_exposure_time(self, images, C=0.9):
+    def adjust_exposure_time(self, images, sat_id, C=0.9):
         """
         This method adjusts the exposure time such that the pixel reached its full well for the maximal value of the raciances rendered by RTE.
         However, if the current exposure time does not cause full well, there will be now adjustment.
@@ -1476,8 +1476,10 @@ class Imager(object):
 
             if (len(self._channels) > 1):
                 max_of_images_per_channel = np.array(images)[..., channel_index].max()
+
             else:
-                max_of_images_per_channel = np.array(images).max()
+                # max_of_images_per_channel = np.array(images).max()
+                max_of_images_per_channel = np.array(images)[:,sat_id,:,:].max()
 
             # electrons_number = 1e-6*self._exposure_time*INTEGRAL*image
             # The 1e-6* scales electrons_number to units of [electrons]
@@ -1524,7 +1526,8 @@ class Imager(object):
             if (len(self._channels) > 1):
                 max_of_images_per_channel = np.array(images)[..., channel_index].max()
             else:
-                max_of_images_per_channel = np.array(images).max()
+                # max_of_images_per_channel = np.array(images).max()
+                max_of_images_per_channel = np.array(images)[:, sat_id, :, :].max()
                 # electrons_number = 1e-6*self._exposure_time*INTEGRAL*image
             # The 1e-6* scales electrons_number to units of [electrons]
             # Thus:
