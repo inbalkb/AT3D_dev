@@ -740,5 +740,5 @@ if __name__ == '__main__':
     clouds_path = "/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
         #"/wdata/yaelsc/Data/CASS_50m_256x256x139_600CCN/64_64_32_cloud_fields/cloud*.txt"
         #"/wdata/roironen/Data/BOMEX_256x256x100_5000CCN_50m_micro_256/clouds/cloud*.txt"
-    #main(run_params, clouds_path)
-    simple_main(run_params, clouds_path)
+    main(run_params, clouds_path)
+    #simple_main(run_params, clouds_path)

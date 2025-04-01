@@ -96,7 +96,7 @@ def lambertian(albedo, ground_temperature=298.15, delx=None, dely=None):
         raise ValueError('ground temperature must have a compatible shape.')
     return dataset
 
-def wave_fresnel(real_refractive_index, imaginary_refractive_index, surface_wind_speed,
+def wave_fresnel(real_refractive_index, imaginary_refractive_index, surface_wind_speed,albedo=0.01,
                  ground_temperature=298.15, delx=None, dely=None):
     """
     Defines either a fixed or spatially varying polarized surface BRDF for
@@ -166,6 +166,7 @@ def wave_fresnel(real_refractive_index, imaginary_refractive_index, surface_wind
     real_refractive_index = np.atleast_2d(real_refractive_index)
     imaginary_refractive_index = np.atleast_2d(imaginary_refractive_index)
     surface_wind_speed = np.atleast_2d(surface_wind_speed)
+    albedo = np.atleast_2d(albedo)
 
     if not ((real_refractive_index.shape == imaginary_refractive_index.shape) &
             (real_refractive_index.shape == surface_wind_speed.shape)):
@@ -190,7 +191,8 @@ def wave_fresnel(real_refractive_index, imaginary_refractive_index, surface_wind
     dataset = _make_surface_dataset('wave_fresnel', ground_temperature, delx, dely,
                                  real_refractive_index=real_refractive_index,
                                  imaginary_refractive_index=imaginary_refractive_index,
-                                 surface_wind_speed=surface_wind_speed)
+                                 surface_wind_speed=surface_wind_speed,
+                                 albedo = albedo)
     return dataset
 
 def diner(A, K, B, ZETA, SIGMA, ground_temperature=298.15, delx=None, dely=None):
@@ -527,7 +529,7 @@ def _make_surface_dataset(surface_type, ground_temperature, delx, dely, **kwargs
         maxsfcpars = 2
         sfctype = 'VL'
     elif surface_type == 'wave_fresnel':
-        maxsfcpars = 4
+        maxsfcpars = 5 # was 4 befor vadim added lambertion parameter
         sfctype = 'VW'
     elif surface_type == 'diner':
         maxsfcpars = 6
